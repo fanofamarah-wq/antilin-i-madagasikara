@@ -5,8 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Gestion Scoutisme - Antilin'i Madagasikara</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
-    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <!-- Utilisation de la version minifiée de Babel pour plus de stabilité -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     
@@ -37,7 +38,7 @@
         </div>
     </div>
 
-    <!-- Firebase SDKs -->
+    <!-- Firebase SDKs Compat (Plus robustes pour le déploiement direct) -->
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
@@ -45,16 +46,24 @@
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
 
-        const firebaseConfig = JSON.parse(__firebase_config);
+        // Récupération sécurisée de la config
+        let firebaseConfig;
+        try {
+            firebaseConfig = JSON.parse(__firebase_config);
+        } catch(e) {
+            console.error("Erreur de configuration Firebase");
+        }
+        
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'antilin-i-madagasikara';
 
-        if (!firebase.apps.length) {
+        // Initialisation
+        if (!firebase.apps.length && firebaseConfig) {
             firebase.initializeApp(firebaseConfig);
         }
         const auth = firebase.auth();
         const db = firebase.firestore();
 
-        // --- UI Components ---
+        // --- Composants de base ---
         const Icon = ({ name, size = 18, className = "" }) => {
             const iconRef = useRef(null);
             useEffect(() => {
@@ -69,126 +78,43 @@
             return <span ref={iconRef} className={`inline-flex items-center justify-center ${className}`} style={{ width: size, height: size }}></span>;
         };
 
-        const Button = ({ children, onClick, variant = "primary", className = "", disabled = false }) => {
+        const Button = ({ children, onClick, variant = "primary", className = "" }) => {
             const variants = {
                 primary: "bg-amber-600 text-white hover:bg-amber-700 shadow-sm",
                 outline: "border-2 border-amber-600 text-amber-600 hover:bg-amber-50",
                 secondary: "bg-stone-800 text-white hover:bg-stone-900",
-                danger: "bg-red-500 text-white hover:bg-red-600",
                 ghost: "text-stone-700 hover:bg-stone-100"
             };
             return (
-                <button 
-                    disabled={disabled} 
-                    onClick={onClick} 
-                    className={`px-4 py-2 rounded-xl font-bold transition-all flex items-center justify-center gap-2 active:scale-95 ${disabled ? 'opacity-50' : ''} ${variants[variant]} ${className}`}
-                >
+                <button onClick={onClick} className={`px-4 py-2 rounded-xl font-bold transition-all flex items-center justify-center gap-2 active:scale-95 ${variants[variant]} ${className}`}>
                     {children}
                 </button>
             );
         };
 
-        const InputField = ({ label, value, onChange, placeholder, type = "text" }) => (
+        const InputField = ({ label, value, onChange, placeholder }) => (
             <div className="w-full">
                 <label className="block text-[10px] font-black text-amber-800 mb-1 uppercase tracking-widest">{label}</label>
                 <input 
-                    type={type} 
+                    type="text" 
                     value={value || ''} 
                     onChange={onChange} 
                     placeholder={placeholder} 
-                    className="w-full p-3 rounded-xl border border-stone-200 focus:ring-2 focus:ring-amber-500 outline-none text-sm transition-all"
+                    className="w-full p-3 rounded-xl border border-stone-200 focus:ring-2 focus:ring-amber-500 outline-none text-sm"
                 />
             </div>
         );
 
-        // --- Views ---
-        function HomeView({ settings }) {
-            return (
-                <div className="text-center py-12 flex flex-col items-center">
-                    <div className="relative mb-6">
-                        <div className="absolute -inset-10 bg-amber-500/20 rounded-full blur-3xl"></div>
-                        <div className="relative w-48 h-48 bg-stone-800 rounded-full border-8 border-white shadow-2xl flex items-center justify-center overflow-hidden">
-                            {settings.logoUrl ? <img src={settings.logoUrl} className="w-full h-full object-cover" /> : <Icon name="users" size={80} className="text-amber-50" />}
-                        </div>
-                    </div>
-                    <h2 className="text-4xl font-black text-stone-900 mb-2 uppercase tracking-tight">{settings.groupName || "Antilin'i Madagasikara"}</h2>
-                    <div className="bg-amber-100 px-6 py-1.5 rounded-full text-amber-800 font-black text-xs uppercase tracking-widest">{settings.fivondronana || "Fivondronana"}</div>
-                </div>
-            );
-        }
-
-        function ChatView({ messages, onAdd, pseudo, setPseudo }) {
-            const [input, setInput] = useState("");
-            const chatEndRef = useRef(null);
-
-            useEffect(() => {
-                chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-            }, [messages]);
-
-            const handleSend = () => {
-                if (!input.trim()) return;
-                onAdd({
-                    sender: pseudo,
-                    text: input,
-                    type: 'text',
-                    time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                });
-                setInput("");
-            };
-
-            return (
-                <div className="h-[75vh] flex flex-col space-y-4">
-                    <div className="flex justify-between items-center bg-white p-3 rounded-2xl border border-stone-200 shadow-sm">
-                        <div className="flex items-center gap-3">
-                            <Icon name="message-circle" className="text-amber-600" />
-                            <h3 className="font-black text-amber-900 text-sm uppercase">Resaka Real-time</h3>
-                        </div>
-                        <div className="flex items-center gap-2">
-                            <span className="text-[10px] font-bold text-stone-400 uppercase tracking-tighter">Ianao:</span>
-                            <input value={pseudo} onChange={e => setPseudo(e.target.value)} className="bg-stone-50 border text-xs p-1.5 rounded-lg font-bold w-32 outline-none focus:ring-1 focus:ring-amber-500" />
-                        </div>
-                    </div>
-                    <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-white rounded-3xl border border-stone-100 shadow-inner custom-scrollbar">
-                        {messages.length === 0 && <p className="text-center text-stone-400 text-sm py-10 italic">Tsy misy hafatra mbola voaray...</p>}
-                        {messages.map((m) => (
-                            <div key={m.id} className={`flex flex-col ${m.sender === pseudo ? 'items-end' : 'items-start'}`}>
-                                <span className="text-[9px] font-black text-stone-400 mb-1 px-2 uppercase tracking-tighter">{m.sender}</span>
-                                <div className={`max-w-[85%] p-3 shadow-sm ${m.sender === pseudo ? 'bg-amber-600 text-white chat-bubble-me' : 'bg-stone-100 text-stone-800 chat-bubble-them'}`}>
-                                    <p className="text-sm leading-relaxed">{m.text}</p>
-                                </div>
-                                <span className="text-[8px] text-stone-400 mt-1">{m.time}</span>
-                            </div>
-                        ))}
-                        <div ref={chatEndRef} />
-                    </div>
-                    <div className="flex gap-2 items-center bg-white p-2 rounded-2xl shadow-md border border-stone-100">
-                        <input 
-                            value={input} 
-                            onChange={e => setInput(e.target.value)} 
-                            onKeyPress={e => e.key === 'Enter' && handleSend()} 
-                            placeholder="Hanoratra hafatra..." 
-                            className="flex-1 bg-transparent border-none outline-none text-sm px-4 h-12" 
-                        />
-                        <Button onClick={handleSend} className="rounded-xl w-12 h-12 p-0 shadow-amber-200 shadow-lg">
-                            <Icon name="send" />
-                        </Button>
-                    </div>
-                </div>
-            );
-        }
-
-        // --- Main App ---
+        // --- App ---
         function App() {
             const [user, setUser] = useState(null);
             const [activeTab, setActiveTab] = useState('accueil');
             const [isMenuOpen, setIsMenuOpen] = useState(false);
             const [pseudo, setPseudo] = useState(localStorage.getItem('scout_pseudo') || "Chef Scout");
-            
-            const [settings, setSettings] = useState({ groupName: "Antilin'i Madagasikara", fivondronana: "Fivondronana faha-17", logoUrl: null });
+            const [settings, setSettings] = useState({ groupName: "Antilin'i Madagasikara", fivondronana: "Fivondronana faha-17" });
             const [messages, setMessages] = useState([]);
             const [loading, setLoading] = useState(true);
 
-            // Authentication
             useEffect(() => {
                 const initAuth = async () => {
                     try {
@@ -197,9 +123,7 @@
                         } else {
                             await auth.signInAnonymously();
                         }
-                    } catch (e) {
-                        console.error("Auth error", e);
-                    }
+                    } catch (e) { console.error("Auth error", e); }
                 };
                 initAuth();
                 const unsubscribe = auth.onAuthStateChanged((u) => {
@@ -209,118 +133,138 @@
                 return () => unsubscribe();
             }, []);
 
-            // Firestore Sync (Following Rule 1 precisely)
             useEffect(() => {
                 if (!user) return;
 
-                // Path Rule 1: /artifacts/{appId}/public/data/{collectionName}
-                // We use these exact paths to avoid permission denied errors
-                const settingsCol = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('settings');
-                const messagesCol = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('messages');
+                // Application stricte de la Règle 1 pour les chemins
+                const baseDoc = db.collection('artifacts').doc(appId);
+                const settingsCol = baseDoc.collection('public').doc('data').collection('settings');
+                const messagesCol = baseDoc.collection('public').doc('data').collection('messages');
 
-                const unsubSettings = settingsCol.doc('main').onSnapshot((doc) => {
+                const unsubSettings = settingsCol.doc('main').onSnapshot(doc => {
                     if (doc.exists) setSettings(doc.data());
-                }, (err) => console.error("Settings listener error:", err));
+                }, err => console.warn("Attente des permissions..."));
 
-                const unsubMessages = messagesCol.onSnapshot((snapshot) => {
-                    const msgList = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-                    // Sort in memory (Rule 2)
-                    setMessages(msgList.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0)));
-                }, (err) => console.error("Messages listener error:", err));
+                const unsubMessages = messagesCol.onSnapshot(snap => {
+                    const msgs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                    setMessages(msgs.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0)));
+                }, err => console.warn("Attente des messages..."));
 
                 return () => { unsubSettings(); unsubMessages(); };
             }, [user]);
 
-            const addMessage = async (data) => {
-                if (!user) return;
-                try {
-                    await db.collection('artifacts').doc(appId).collection('public').doc('data').collection('messages').add({
-                        ...data,
-                        timestamp: firebase.firestore.FieldValue.serverTimestamp()
-                    });
-                } catch (e) { console.error("Error adding message:", e); }
+            const sendMessage = async (txt) => {
+                if (!user || !txt.trim()) return;
+                await db.collection('artifacts').doc(appId).collection('public').doc('data').collection('messages').add({
+                    sender: pseudo,
+                    text: txt,
+                    timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+                    time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                });
             };
 
-            const updateSettings = async (newSettings) => {
+            const updateSettings = async (data) => {
                 if (!user) return;
-                try {
-                    await db.collection('artifacts').doc(appId).collection('public').doc('data').collection('settings').doc('main').set(newSettings, { merge: true });
-                } catch (e) { console.error("Error updating settings:", e); }
+                await db.collection('artifacts').doc(appId).collection('public').doc('data').collection('settings').doc('main').set(data, { merge: true });
             };
 
             if (loading) return (
                 <div className="flex flex-col items-center justify-center h-screen gap-4">
                     <div className="loader"></div>
-                    <p className="text-amber-800 font-bold uppercase text-xs tracking-widest animate-pulse">Fampidirana...</p>
+                    <p className="text-amber-800 font-bold uppercase text-xs">Fampidirana...</p>
                 </div>
             );
 
             return (
-                <div className="min-h-screen flex overflow-hidden">
-                    {isMenuOpen && <div className="fixed inset-0 bg-stone-900/60 z-40 lg:hidden backdrop-blur-sm" onClick={() => setIsMenuOpen(false)} />}
-                    
-                    <main className="flex-1 h-screen overflow-y-auto pb-10 bg-stone-50">
-                        <header className="sticky top-0 bg-white/80 backdrop-blur-md border-b border-stone-200 p-4 flex justify-between items-center z-30 shadow-sm">
-                            <div className="flex items-center gap-3">
-                                <div className="w-10 h-10 bg-amber-600 rounded-2xl flex items-center justify-center text-white font-black shadow-lg overflow-hidden">
-                                    {settings.logoUrl ? <img src={settings.logoUrl} className="w-full h-full object-cover" /> : "A"}
+                <div className="min-h-screen flex flex-col bg-stone-50">
+                    <header className="bg-white border-b border-stone-200 p-4 flex justify-between items-center sticky top-0 z-30">
+                        <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 bg-amber-600 rounded-xl flex items-center justify-center text-white font-black shadow-lg">A</div>
+                            <div>
+                                <h1 className="font-black text-stone-900 text-sm uppercase leading-none">{settings.groupName}</h1>
+                                <p className="text-[9px] text-amber-600 font-bold uppercase tracking-widest">{settings.fivondronana}</p>
+                            </div>
+                        </div>
+                        <button onClick={() => setIsMenuOpen(true)} className="p-2 hover:bg-stone-100 rounded-lg">
+                            <Icon name="menu" size={24} />
+                        </button>
+                    </header>
+
+                    <main className="flex-1 max-w-4xl w-full mx-auto p-4">
+                        {activeTab === 'accueil' && (
+                            <div className="text-center py-20">
+                                <div className="w-40 h-40 bg-stone-800 rounded-full mx-auto mb-6 border-8 border-white shadow-2xl flex items-center justify-center">
+                                    <Icon name="users" size={60} className="text-white" />
                                 </div>
-                                <div>
-                                    <h1 className="font-black text-stone-900 text-base leading-none uppercase tracking-tight">{settings.groupName || "Antilin'i Madagasikara"}</h1>
-                                    <p className="text-[9px] text-amber-600 font-black uppercase tracking-widest mt-0.5">{settings.fivondronana || "Scout"}</p>
+                                <h2 className="text-3xl font-black text-stone-900 mb-2 uppercase italic">{settings.groupName}</h2>
+                                <span className="bg-amber-100 text-amber-800 px-4 py-1 rounded-full font-black text-xs uppercase">{settings.fivondronana}</span>
+                            </div>
+                        )}
+
+                        {activeTab === 'chat' && (
+                            <div className="h-[70vh] flex flex-col gap-4">
+                                <div className="flex-1 overflow-y-auto bg-white rounded-3xl border p-4 space-y-4 custom-scrollbar">
+                                    {messages.map(m => (
+                                        <div key={m.id} className={`flex flex-col ${m.sender === pseudo ? 'items-end' : 'items-start'}`}>
+                                            <span className="text-[9px] font-black text-stone-400 mb-1 px-1 uppercase">{m.sender}</span>
+                                            <div className={`p-3 max-w-[80%] ${m.sender === pseudo ? 'bg-amber-600 text-white chat-bubble-me shadow-md' : 'bg-stone-100 text-stone-800 chat-bubble-them'}`}>
+                                                <p className="text-sm">{m.text}</p>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                                <div className="flex gap-2 p-2 bg-white rounded-2xl border shadow-sm">
+                                    <input 
+                                        type="text" 
+                                        className="flex-1 outline-none px-4 text-sm" 
+                                        placeholder="Hanoratra..." 
+                                        onKeyPress={e => e.key === 'Enter' && (sendMessage(e.target.value), e.target.value = '')}
+                                    />
+                                    <Button className="w-10 h-10 p-0" onClick={() => {
+                                        const i = document.querySelector('input[placeholder="Hanoratra..."]');
+                                        sendMessage(i.value); i.value = '';
+                                    }}><Icon name="send" size={18} /></Button>
                                 </div>
                             </div>
-                            <button onClick={() => setIsMenuOpen(true)} className="p-2 hover:bg-stone-100 rounded-xl text-stone-700 transition-colors">
-                                <Icon name="menu" size={24} />
-                            </button>
-                        </header>
+                        )}
 
-                        <div className="max-w-4xl mx-auto p-4 lg:p-8">
-                            {activeTab === 'accueil' && <HomeView settings={settings} />}
-                            {activeTab === 'chat' && <ChatView messages={messages} onAdd={addMessage} pseudo={pseudo} setPseudo={(p) => { setPseudo(p); localStorage.setItem('scout_pseudo', p); }} />}
-                            {activeTab === 'settings' && (
-                                <div className="space-y-6">
-                                    <h2 className="text-3xl font-black uppercase italic text-stone-800">Paramètres</h2>
-                                    <div className="bg-white p-6 rounded-3xl border border-stone-200 shadow-sm space-y-6">
-                                        <InputField label="Anaran'ny Vondrona" value={settings.groupName} onChange={e => updateSettings({ groupName: e.target.value })} />
-                                        <InputField label="Fivondronana (Ohatra: 17)" value={settings.fivondronana} onChange={e => updateSettings({ fivondronana: e.target.value })} />
-                                    </div>
+                        {activeTab === 'settings' && (
+                            <div className="space-y-6">
+                                <h2 className="text-2xl font-black uppercase italic">Paramètres</h2>
+                                <div className="bg-white p-6 rounded-3xl border shadow-sm space-y-4">
+                                    <InputField label="Anaran'ny Vondrona" value={settings.groupName} onChange={e => updateSettings({groupName: e.target.value})} />
+                                    <InputField label="Fivondronana" value={settings.fivondronana} onChange={e => updateSettings({fivondronana: e.target.value})} />
+                                    <InputField label="Pseudo-nao" value={pseudo} onChange={e => {setPseudo(e.target.value); localStorage.setItem('scout_pseudo', e.target.value);}} />
                                 </div>
-                            )}
-                        </div>
+                            </div>
+                        )}
                     </main>
 
-                    <aside className={`fixed top-0 right-0 h-full w-72 bg-[#3d241c] text-stone-100 z-50 transform transition-transform duration-500 ease-out shadow-2xl ${isMenuOpen ? 'translate-x-0' : 'translate-x-full'}`}>
-                        <div className="p-6 h-full flex flex-col">
-                            <div className="flex justify-between items-center mb-10">
-                                <div className="flex items-center gap-2">
-                                    <div className="w-2 h-8 bg-amber-500 rounded-full"></div>
-                                    <h2 className="text-2xl font-black uppercase tracking-tighter text-amber-400 italic">Valizy</h2>
+                    {isMenuOpen && (
+                        <div className="fixed inset-0 z-50 flex justify-end">
+                            <div className="absolute inset-0 bg-stone-900/40 backdrop-blur-sm" onClick={() => setIsMenuOpen(false)}></div>
+                            <div className="relative w-72 bg-[#3d241c] h-full shadow-2xl p-6 flex flex-col">
+                                <div className="flex justify-between items-center mb-10">
+                                    <h2 className="text-2xl font-black text-amber-400 italic">VALIZY</h2>
+                                    <button onClick={() => setIsMenuOpen(false)} className="text-white"><Icon name="x" size={24} /></button>
                                 </div>
-                                <button onClick={() => setIsMenuOpen(false)} className="p-2 hover:bg-white/10 rounded-xl transition-colors">
-                                    <Icon name="x" size={20} />
-                                </button>
-                            </div>
-                            <nav className="space-y-2 flex-1">
-                                <MenuButton icon="home" label="Tongasoa" active={activeTab === 'accueil'} onClick={() => { setActiveTab('accueil'); setIsMenuOpen(false); }} />
-                                <MenuButton icon="message-circle" label="Resaka (Chat)" active={activeTab === 'chat'} onClick={() => { setActiveTab('chat'); setIsMenuOpen(false); }} />
-                                <div className="my-4 border-t border-white/10"></div>
-                                <MenuButton icon="settings" label="Paramètres" active={activeTab === 'settings'} onClick={() => { setActiveTab('settings'); setIsMenuOpen(false); }} />
-                            </nav>
-                            <div className="mt-auto p-4 bg-white/5 rounded-2xl border border-white/5">
-                                <p className="text-[10px] font-bold text-amber-400 uppercase tracking-widest mb-1">Miarahaba,</p>
-                                <p className="text-sm font-black truncate">{pseudo}</p>
+                                <nav className="space-y-2">
+                                    <NavItem active={activeTab === 'accueil'} label="Tongasoa" icon="home" onClick={() => {setActiveTab('accueil'); setIsMenuOpen(false);}} />
+                                    <NavItem active={activeTab === 'chat'} label="Resaka (Chat)" icon="message-circle" onClick={() => {setActiveTab('chat'); setIsMenuOpen(false);}} />
+                                    <div className="border-t border-white/10 my-4"></div>
+                                    <NavItem active={activeTab === 'settings'} label="Paramètres" icon="settings" onClick={() => {setActiveTab('settings'); setIsMenuOpen(false);}} />
+                                </nav>
                             </div>
                         </div>
-                    </aside>
+                    )}
                 </div>
             );
         }
 
-        function MenuButton({ icon, label, active, onClick }) {
+        function NavItem({ active, label, icon, onClick }) {
             return (
-                <button onClick={onClick} className={`w-full flex items-center gap-4 px-5 py-3.5 rounded-2xl transition-all duration-300 ${active ? 'bg-amber-500 text-stone-900 shadow-lg font-black' : 'hover:bg-white/5 text-stone-300 font-bold'}`}>
-                    <Icon name={icon} size={20} />
+                <button onClick={onClick} className={`w-full flex items-center gap-4 px-4 py-3 rounded-xl transition-all ${active ? 'bg-amber-500 text-stone-900 font-black' : 'text-stone-300 hover:bg-white/5'}`}>
+                    <Icon name={icon} />
                     <span className="text-sm uppercase tracking-tight">{label}</span>
                 </button>
             );
