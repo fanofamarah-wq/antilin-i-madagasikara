@@ -9,24 +9,36 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
 
-    <script>
-        function scoutApp() {
+    <!-- Firebase SDK -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, onSnapshot, collection, query, addDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Configuration et Initialisation
+        const firebaseConfig = JSON.parse(__firebase_config);
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'valizy-scout-pro';
+
+        window.scoutApp = function() {
             return {
                 tab: 'home',
                 showForm: false,
                 currentFiche: null,
+                user: null,
                 currentUser: {
                     pseudo: localStorage.getItem('valizy_pseudo') || 'Skoto_' + Math.floor(Math.random() * 1000)
                 },
                 
-                // Paramètres modifiables
-                settings: JSON.parse(localStorage.getItem('valizy_settings')) || {
+                settings: {
                     groupName: "Antilin'i Madagasikara",
                     fivondronana: "Fivondronana faha-17",
                     sampana: "Mpamakilay",
                     dina: "Tsy misaraka mandrakizay",
                     aboutText: "Mpanabe ny tanora mba ho vanona sy mahay mandray andraikitra.",
-                    logo: null // Sary personnalisé ho an'ny tongasoa
+                    logo: null
                 },
 
                 menu: [
@@ -38,19 +50,11 @@
                     { id: 'settings', label: 'Paramètre', icon: '⚙️' }
                 ],
 
-                news: JSON.parse(localStorage.getItem('valizy_news')) || [
-                    { title: "Lasy 2024", desc: "Fanomanana ny lasy lehibe.", date: "15 Mey", id: 1 }
-                ],
-
-                events: JSON.parse(localStorage.getItem('valizy_events')) || [
-                    { id: 1, title: "Fivoriana voalohany", date: "2024-05-10" }
-                ],
-
-                scouts: JSON.parse(localStorage.getItem('valizy_scouts')) || [],
-
-                fiches: JSON.parse(localStorage.getItem('valizy_fiches')) || [],
-
-                messages: JSON.parse(localStorage.getItem('valizy_chat')) || [],
+                news: [],
+                events: [],
+                scouts: [],
+                fiches: [],
+                messages: [],
 
                 // Forms
                 formEvent: { title: '', date: '' },
@@ -59,13 +63,58 @@
                 formNews: { title: '', desc: '', date: '' },
                 chatInput: '',
 
-                init() {
-                    this.$watch('settings', (val) => localStorage.setItem('valizy_settings', JSON.stringify(val)));
-                    this.$watch('news', (val) => localStorage.setItem('valizy_news', JSON.stringify(val)));
-                    this.$watch('events', (val) => localStorage.setItem('valizy_events', JSON.stringify(val)));
-                    this.$watch('scouts', (val) => localStorage.setItem('valizy_scouts', JSON.stringify(val)));
-                    this.$watch('fiches', (val) => localStorage.setItem('valizy_fiches', JSON.stringify(val)));
-                    this.$watch('messages', (val) => localStorage.setItem('valizy_chat', JSON.stringify(val)));
+                async init() {
+                    // 1. Authentification
+                    try {
+                        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                            await signInWithCustomToken(auth, __initial_auth_token);
+                        } else {
+                            await signInAnonymously(auth);
+                        }
+                    } catch (e) { console.error("Auth error", e); }
+
+                    onAuthStateChanged(auth, (user) => {
+                        this.user = user;
+                        if (user) {
+                            this.setupRealtimeSync();
+                        }
+                    });
+                },
+
+                setupRealtimeSync() {
+                    if (!this.user) return;
+
+                    // Sync Settings (Corrected path to have even segments: artifacts/appId/public/data/settingsCollection/globalDoc)
+                    onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'global'), (docSnap) => {
+                        if (docSnap.exists()) this.settings = docSnap.data();
+                    }, (err) => console.error("Settings sync error", err));
+
+                    // Sync News
+                    onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'news'), (snap) => {
+                        this.news = snap.docs.map(d => ({...d.data(), id: d.id}));
+                    }, (err) => console.error("News sync error", err));
+
+                    // Sync Events
+                    onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'events'), (snap) => {
+                        this.events = snap.docs.map(d => ({...d.data(), id: d.id}));
+                    }, (err) => console.error("Events sync error", err));
+
+                    // Sync Scouts
+                    onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'scouts'), (snap) => {
+                        this.scouts = snap.docs.map(d => ({...d.data(), id: d.id}));
+                    }, (err) => console.error("Scouts sync error", err));
+
+                    // Sync Fiches
+                    onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'fiches'), (snap) => {
+                        this.fiches = snap.docs.map(d => ({...d.data(), id: d.id}));
+                    }, (err) => console.error("Fiches sync error", err));
+
+                    // Sync Chat
+                    onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'chat'), (snap) => {
+                        const msgs = snap.docs.map(d => ({...d.data(), id: d.id}));
+                        this.messages = msgs.sort((a, b) => a.timestamp - b.timestamp);
+                        setTimeout(() => this.scrollToBottom(), 100);
+                    }, (err) => console.error("Chat sync error", err));
                 },
 
                 // Handlers
@@ -79,52 +128,61 @@
                     const reader = new FileReader();
                     reader.onload = (f) => {
                         if(target === 'scout') this.formScout.image = f.target.result;
-                        if(target === 'logo') this.settings.logo = f.target.result;
+                        if(target === 'logo') {
+                            this.settings.logo = f.target.result;
+                            this.saveSettings();
+                        }
                     };
                     reader.readAsDataURL(file);
                 },
 
-                sendMessage() {
-                    if(!this.chatInput.trim()) return;
-                    this.messages.push({
-                        id: Date.now(),
-                        user: this.currentUser.pseudo,
-                        text: this.chatInput,
-                        time: new Date().toLocaleTimeString('mg-MG', {hour: '2-digit', minute:'2-digit'})
-                    });
-                    this.chatInput = '';
-                    // Scroll to bottom
-                    setTimeout(() => {
-                        const el = document.getElementById('chat-box');
-                        el.scrollTop = el.scrollHeight;
-                    }, 100);
+                async saveSettings() {
+                    if (!this.user) return;
+                    // Corrected path for saving
+                    await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'global'), this.settings);
                 },
 
-                addNews() {
-                    if(!this.formNews.title) return;
-                    this.news.unshift({ ...this.formNews, id: Date.now() });
+                async sendMessage() {
+                    if(!this.chatInput.trim() || !this.user) return;
+                    await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'chat'), {
+                        user: this.currentUser.pseudo,
+                        text: this.chatInput,
+                        time: new Date().toLocaleTimeString('mg-MG', {hour: '2-digit', minute:'2-digit'}),
+                        timestamp: Date.now()
+                    });
+                    this.chatInput = '';
+                },
+
+                async addNews() {
+                    if(!this.formNews.title || !this.user) return;
+                    await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'news'), { ...this.formNews, timestamp: Date.now() });
                     this.formNews = { title: '', desc: '', date: '' };
                 },
 
-                addEvent() {
-                    if(!this.formEvent.title) return;
-                    this.events.unshift({ ...this.formEvent, id: Date.now() });
+                async addEvent() {
+                    if(!this.formEvent.title || !this.user) return;
+                    await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'events'), { ...this.formEvent, timestamp: Date.now() });
                     this.formEvent = { title: '', date: '' };
                     this.showForm = false;
                 },
 
-                addScout() {
-                    if(!this.formScout.name) return;
-                    this.scouts.unshift({ ...this.formScout, id: Date.now() });
+                async addScout() {
+                    if(!this.formScout.name || !this.user) return;
+                    await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'scouts'), { ...this.formScout, timestamp: Date.now() });
                     this.formScout = { name: '', firstname: '', address: '', phone: '', facebook: '', image: null };
                     this.showForm = false;
                 },
 
-                addFiche() {
-                    if(!this.formFiche.title) return;
-                    this.fiches.unshift({ ...this.formFiche, id: Date.now() });
+                async addFiche() {
+                    if(!this.formFiche.title || !this.user) return;
+                    await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'fiches'), { ...this.formFiche, timestamp: Date.now() });
                     this.formFiche = { title: '', category: '', participants: '', objective: '', content: '', remark: '' };
                     this.showForm = false;
+                },
+
+                scrollToBottom() {
+                    const el = document.getElementById('chat-box');
+                    if (el) el.scrollTop = el.scrollHeight;
                 },
 
                 printFiche(f) {
@@ -135,7 +193,7 @@
         }
     </script>
     
-    <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
 
     <style>
         body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #fcfcfc; }
@@ -178,10 +236,12 @@
                     </template>
                 </nav>
 
-                <!-- Pseudo Display -->
                 <div class="mt-auto p-4 bg-white/5 rounded-2xl border border-white/10">
                     <p class="text-[8px] uppercase font-black text-amber-500 mb-1">Mombamomba anao</p>
                     <p class="text-xs font-bold truncate" x-text="currentUser.pseudo"></p>
+                    <template x-if="!user">
+                        <div class="mt-2 text-[8px] text-stone-500 italic">Mampifandray amin'ny serveur...</div>
+                    </template>
                 </div>
             </div>
         </aside>
@@ -210,7 +270,6 @@
                     </div>
 
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <!-- News Section -->
                         <div class="bg-white p-8 rounded-[2.5rem] border border-stone-200">
                             <h3 class="font-black text-[9px] uppercase tracking-[0.2em] text-stone-400 mb-6">Vaovao sy ny ho avy</h3>
                             <div class="space-y-6">
@@ -224,7 +283,6 @@
                             </div>
                         </div>
 
-                        <!-- Info Section -->
                         <div class="bg-stone-900 p-8 rounded-[2.5rem] text-white flex flex-col justify-between">
                             <div>
                                 <h3 class="font-black text-[9px] uppercase tracking-[0.2em] text-amber-500 mb-6">Tanjona</h3>
@@ -263,7 +321,6 @@
                                     </div>
                                     <h4 class="font-black text-lg text-stone-800" x-text="e.title"></h4>
                                 </div>
-                                <button @click="events = events.filter(i => i.id !== e.id)" class="text-stone-300 hover:text-red-500 px-4">✕</button>
                             </div>
                         </template>
                     </div>
@@ -292,12 +349,6 @@
                                     </div>
                                 </div>
                             </template>
-                            <template x-if="messages.length === 0">
-                                <div class="h-full flex flex-col items-center justify-center text-stone-300 space-y-2">
-                                    <span class="text-4xl">💬</span>
-                                    <p class="text-xs font-bold uppercase tracking-widest">Atombohy ny resaka...</p>
-                                </div>
-                            </template>
                         </div>
                         <div class="p-4 bg-stone-50 border-t flex gap-2">
                             <input type="text" x-model="chatInput" @keyup.enter="sendMessage" placeholder="Soraty eto ny hafatra..." class="flex-1 bg-white p-3 rounded-xl ring-1 ring-stone-200 outline-none focus:ring-2 focus:ring-amber-600 font-medium text-sm">
@@ -310,7 +361,6 @@
                 <div x-show="tab === 'settings'" class="space-y-8">
                     <h2 class="text-3xl font-black uppercase tracking-tighter mb-8">Paramètres</h2>
                     
-                    <!-- Config Logo/Tongasoa -->
                     <div class="bg-white p-8 rounded-[2rem] border border-stone-200">
                         <h3 class="font-black text-xs uppercase tracking-widest text-amber-600 mb-6">Sary sy Logo Tongasoa</h3>
                         <div class="flex items-center gap-6">
@@ -320,13 +370,11 @@
                                 </template>
                             </div>
                             <div class="flex-1">
-                                <p class="text-xs text-stone-500 mb-4 font-medium">Ity sary ity no hiseho eo amin'ny pejy fandraisana (Tongasoa).</p>
                                 <input type="file" @change="handleImage($event, 'logo')" class="text-xs file:bg-stone-900 file:text-white file:border-none file:px-4 file:py-2 file:rounded-xl cursor-pointer">
                             </div>
                         </div>
                     </div>
 
-                    <!-- Config News -->
                     <div class="bg-white p-8 rounded-[2rem] border border-stone-200">
                         <h3 class="font-black text-xs uppercase tracking-widest text-amber-600 mb-6">Hampiditra Vaovao</h3>
                         <div class="grid grid-cols-1 gap-4 mb-6">
@@ -337,23 +385,22 @@
                         <button @click="addNews()" class="bg-stone-900 text-white px-8 py-3 rounded-xl font-black uppercase text-[10px] tracking-widest">Hampiditra ny vaovao</button>
                     </div>
 
-                    <!-- Config Group -->
                     <div class="bg-white p-8 rounded-[2rem] border border-stone-200">
                         <h3 class="font-black text-xs uppercase tracking-widest text-amber-600 mb-6">Mombamomba ny vondrona</h3>
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div>
                                 <label class="text-[9px] font-black text-stone-400 uppercase ml-2">Anaran'ny Vondrona</label>
-                                <input type="text" x-model="settings.groupName" class="w-full p-3 rounded-xl ring-1 ring-stone-100 outline-none font-bold text-sm">
+                                <input type="text" x-model="settings.groupName" @blur="saveSettings" class="w-full p-3 rounded-xl ring-1 ring-stone-100 outline-none font-bold text-sm">
                             </div>
                             <div>
                                 <label class="text-[9px] font-black text-stone-400 uppercase ml-2">Fivondronana</label>
-                                <input type="text" x-model="settings.fivondronana" class="w-full p-3 rounded-xl ring-1 ring-stone-100 outline-none font-bold text-sm">
+                                <input type="text" x-model="settings.fivondronana" @blur="saveSettings" class="w-full p-3 rounded-xl ring-1 ring-stone-100 outline-none font-bold text-sm">
                             </div>
                         </div>
                     </div>
                 </div>
 
-                <!-- Les autres onglets existants (Members, Edu) restent inchangés mais utilisent maintenant les fonctions mises à jour -->
+                <!-- ZATOVO -->
                 <div x-show="tab === 'members'" class="space-y-6">
                     <div class="flex justify-between items-center">
                         <h2 class="text-3xl font-black uppercase tracking-tighter">Zatovo</h2>
@@ -363,48 +410,41 @@
                     <div x-show="showForm" class="bg-white p-6 rounded-2xl border border-stone-200 mb-6 shadow-xl">
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                             <div class="md:col-span-2">
-                                <label class="text-[10px] font-bold uppercase text-stone-400 block mb-2">Sarin'ilay zatovo</label>
-                                <input type="file" @change="handleImage($event, 'scout')" class="text-xs file:bg-stone-100 file:border-none file:rounded-lg file:px-4 file:py-2">
+                                <input type="file" @change="handleImage($event, 'scout')" class="text-xs">
                                 <template x-if="formScout.image">
                                     <img :src="formScout.image" class="w-20 h-20 object-cover rounded-xl mt-2 border">
                                 </template>
                             </div>
-                            <input type="text" x-model="formScout.name" placeholder="Anarana" class="w-full p-3 rounded-xl ring-1 ring-stone-100 outline-none focus:ring-2 focus:ring-amber-600 font-bold text-sm">
-                            <input type="text" x-model="formScout.firstname" placeholder="Fanampiny" class="w-full p-3 rounded-xl ring-1 ring-stone-100 outline-none focus:ring-2 focus:ring-amber-600 font-bold text-sm">
-                            <input type="text" x-model="formScout.address" placeholder="Adiresy" class="w-full p-3 rounded-xl ring-1 ring-stone-100 outline-none focus:ring-2 focus:ring-amber-600 font-bold text-sm">
-                            <input type="text" x-model="formScout.phone" placeholder="Telefaonina" class="w-full p-3 rounded-xl ring-1 ring-stone-100 outline-none focus:ring-2 focus:ring-amber-600 font-bold text-sm">
+                            <input type="text" x-model="formScout.name" placeholder="Anarana" class="w-full p-3 rounded-xl ring-1 ring-stone-100 outline-none font-bold text-sm">
+                            <input type="text" x-model="formScout.firstname" placeholder="Fanampiny" class="w-full p-3 rounded-xl ring-1 ring-stone-100 outline-none font-bold text-sm">
+                            <input type="text" x-model="formScout.address" placeholder="Adiresy" class="w-full p-3 rounded-xl ring-1 ring-stone-100 outline-none font-bold text-sm">
+                            <input type="text" x-model="formScout.phone" placeholder="Telefaonina" class="w-full p-3 rounded-xl ring-1 ring-stone-100 outline-none font-bold text-sm">
                             <div class="md:col-span-2">
-                                <input type="text" x-model="formScout.facebook" placeholder="Lien Facebook na Anarana Facebook" class="w-full p-3 rounded-xl ring-1 ring-stone-100 outline-none focus:ring-2 focus:ring-amber-600 font-bold text-sm">
+                                <input type="text" x-model="formScout.facebook" placeholder="Lien Facebook" class="w-full p-3 rounded-xl ring-1 ring-stone-100 outline-none font-bold text-sm">
                             </div>
                         </div>
-                        <button @click="addScout()" class="w-full bg-amber-600 text-white py-4 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-amber-200">Tehirizina ny mpikambana</button>
+                        <button @click="addScout()" class="w-full bg-amber-600 text-white py-4 rounded-xl font-black uppercase text-[10px]">Tehirizina</button>
                     </div>
 
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <template x-for="s in scouts">
-                            <div class="bg-white p-6 rounded-[2rem] border border-stone-200 flex gap-4 card-scout relative group">
+                            <div class="bg-white p-6 rounded-[2rem] border border-stone-200 flex gap-4 card-scout relative">
                                 <div class="w-24 h-24 bg-stone-100 rounded-2xl flex-shrink-0 overflow-hidden border">
                                     <template x-if="s.image">
                                         <img :src="s.image" class="w-full h-full object-cover">
-                                    </template>
-                                    <template x-if="!s.image">
-                                        <div class="w-full h-full flex items-center justify-center text-stone-300 font-black text-3xl" x-text="s.name[0]"></div>
                                     </template>
                                 </div>
                                 <div class="flex-1">
                                     <h4 class="font-black text-stone-900 uppercase text-lg leading-tight" x-text="s.name + ' ' + s.firstname"></h4>
                                     <p class="text-[10px] font-bold text-amber-600 mb-2" x-text="s.phone"></p>
-                                    <div class="text-[11px] text-stone-500 space-y-1">
-                                        <p>📍 <span x-text="s.address"></span></p>
-                                        <p>👤 <span x-text="s.facebook"></span></p>
-                                    </div>
+                                    <p class="text-[11px] text-stone-500">📍 <span x-text="s.address"></span></p>
                                 </div>
-                                <button @click="scouts = scouts.filter(i => i.id !== s.id)" class="absolute top-4 right-4 text-stone-200 hover:text-red-500">✕</button>
                             </div>
                         </template>
                     </div>
                 </div>
 
+                <!-- FICHES -->
                 <div x-show="tab === 'edu'" class="space-y-6">
                     <div class="flex justify-between items-center mb-6">
                         <h2 class="text-3xl font-black uppercase tracking-tighter">Fiches Techniques</h2>
@@ -414,52 +454,26 @@
                     <div x-show="showForm" class="bg-white p-8 rounded-[2rem] border border-stone-200 mb-10 shadow-xl">
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
                             <div class="md:col-span-2">
-                                <label class="text-[10px] font-black uppercase text-stone-400 mb-2 block">Lohahevitra</label>
-                                <input type="text" x-model="formFiche.title" placeholder="Ohatra: Ny afo skoto" class="w-full p-4 rounded-xl ring-1 ring-stone-100 outline-none focus:ring-2 focus:ring-amber-600 font-bold">
+                                <input type="text" x-model="formFiche.title" placeholder="Lohahevitra" class="w-full p-4 rounded-xl ring-1 ring-stone-100 outline-none font-bold">
                             </div>
-                            <div>
-                                <label class="text-[10px] font-black uppercase text-stone-400 mb-2 block">Sokajy</label>
-                                <input type="text" x-model="formFiche.category" placeholder="Teknika, Lasy, sns" class="w-full p-4 rounded-xl ring-1 ring-stone-100 outline-none focus:ring-2 focus:ring-amber-600 font-bold">
-                            </div>
-                            <div>
-                                <label class="text-[10px] font-black uppercase text-stone-400 mb-2 block">Mpandray Anjara</label>
-                                <input type="text" x-model="formFiche.participants" placeholder="Sokajin-taona na Sampana" class="w-full p-4 rounded-xl ring-1 ring-stone-100 outline-none focus:ring-2 focus:ring-amber-600 font-bold">
-                            </div>
+                            <input type="text" x-model="formFiche.category" placeholder="Sokajy" class="w-full p-4 rounded-xl ring-1 ring-stone-100 outline-none font-bold">
+                            <input type="text" x-model="formFiche.participants" placeholder="Mpandray Anjara" class="w-full p-4 rounded-xl ring-1 ring-stone-100 outline-none font-bold">
                             <div class="md:col-span-2">
-                                <label class="text-[10px] font-black uppercase text-stone-400 mb-2 block">Vokatra ho tratrarina</label>
-                                <input type="text" x-model="formFiche.objective" placeholder="Inona no tokony ho hainy?" class="w-full p-4 rounded-xl ring-1 ring-stone-100 outline-none focus:ring-2 focus:ring-amber-600 font-bold">
-                            </div>
-                            <div class="md:col-span-2">
-                                <label class="text-[10px] font-black uppercase text-stone-400 mb-2 block">Fizotrany</label>
-                                <textarea x-model="formFiche.content" rows="4" placeholder="Dingana arahina..." class="w-full p-4 rounded-xl ring-1 ring-stone-100 outline-none focus:ring-2 focus:ring-amber-600 font-bold"></textarea>
-                            </div>
-                            <div class="md:col-span-2">
-                                <label class="text-[10px] font-black uppercase text-stone-400 mb-2 block">Remarque</label>
-                                <input type="text" x-model="formFiche.remark" placeholder="Fanamarihana fanampiny..." class="w-full p-4 rounded-xl ring-1 ring-stone-100 outline-none focus:ring-2 focus:ring-amber-600 font-bold">
+                                <textarea x-model="formFiche.content" rows="4" placeholder="Dingana arahina..." class="w-full p-4 rounded-xl ring-1 ring-stone-100 outline-none font-bold"></textarea>
                             </div>
                         </div>
-                        <button @click="addFiche()" class="w-full bg-stone-900 text-white py-4 rounded-2xl font-black uppercase text-xs tracking-widest">Tehirizina ny Fiche</button>
+                        <button @click="addFiche()" class="w-full bg-stone-900 text-white py-4 rounded-2xl font-black uppercase text-xs">Tehirizina</button>
                     </div>
 
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <template x-for="f in fiches">
-                            <div class="bg-white p-8 rounded-[2rem] border border-stone-200 card-scout group relative">
+                            <div class="bg-white p-8 rounded-[2rem] border border-stone-200 card-scout">
                                 <div class="flex justify-between items-start mb-4">
                                     <span class="text-[9px] font-black bg-amber-100 text-amber-700 px-3 py-1 rounded-full uppercase tracking-widest" x-text="f.category"></span>
-                                    <div class="flex gap-2">
-                                        <button @click="printFiche(f)" class="text-stone-400 hover:text-stone-900">🖨️</button>
-                                        <button @click="fiches = fiches.filter(i => i.id !== f.id)" class="text-stone-200 hover:text-red-500">✕</button>
-                                    </div>
+                                    <button @click="printFiche(f)" class="text-stone-400 hover:text-stone-900">🖨️</button>
                                 </div>
                                 <h4 class="text-2xl font-black text-stone-900 mb-2 leading-tight" x-text="f.title"></h4>
-                                <p class="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-4" x-text="'Anjara: ' + f.participants"></p>
-                                <div class="space-y-4">
-                                    <div class="bg-stone-50 p-4 rounded-xl border border-stone-100">
-                                        <p class="text-[10px] font-black text-stone-400 uppercase mb-1">Vokatra:</p>
-                                        <p class="text-xs font-bold text-stone-700" x-text="f.objective"></p>
-                                    </div>
-                                    <p class="text-stone-500 text-sm line-clamp-2 italic" x-text="f.content"></p>
-                                </div>
+                                <p class="text-stone-500 text-sm line-clamp-2 italic" x-text="f.content"></p>
                             </div>
                         </template>
                     </div>
@@ -473,31 +487,11 @@
     <div id="print-section" class="hidden p-16 bg-white" x-show="currentFiche">
         <template x-if="currentFiche">
             <div class="max-w-3xl mx-auto">
-                <div class="border-b-4 border-stone-900 pb-6 mb-8 flex justify-between items-end">
-                    <div>
-                        <h1 class="text-xl font-black uppercase" x-text="settings.groupName"></h1>
-                        <p class="text-sm font-bold text-stone-500" x-text="settings.fivondronana"></p>
-                    </div>
+                <div class="border-b-4 border-stone-900 pb-6 mb-8">
+                    <h1 class="text-xl font-black uppercase" x-text="settings.groupName"></h1>
                 </div>
                 <h2 class="text-4xl font-black text-stone-900 mb-8" x-text="currentFiche.title"></h2>
-                <div class="grid grid-cols-2 gap-8 mb-10">
-                    <div class="border-l-4 border-amber-500 pl-4">
-                        <p class="text-[10px] font-black text-stone-400 uppercase tracking-widest mb-1">Mpandray Anjara</p>
-                        <p class="font-bold" x-text="currentFiche.participants"></p>
-                    </div>
-                    <div class="border-l-4 border-amber-500 pl-4">
-                        <p class="text-[10px] font-black text-stone-400 uppercase tracking-widest mb-1">Vokatra ho tratrarina</p>
-                        <p class="font-bold" x-text="currentFiche.objective"></p>
-                    </div>
-                </div>
-                <div class="mb-10">
-                    <h3 class="text-lg font-black uppercase mb-4 border-b pb-2">Fizotrany</h3>
-                    <div class="text-base leading-relaxed whitespace-pre-wrap font-medium" x-text="currentFiche.content"></div>
-                </div>
-                <div class="p-6 bg-stone-50 rounded-2xl border border-stone-100">
-                    <h3 class="text-[10px] font-black uppercase mb-2 text-stone-400">Remarque</h3>
-                    <p class="text-sm italic font-bold text-stone-600" x-text="currentFiche.remark"></p>
-                </div>
+                <div class="text-base leading-relaxed whitespace-pre-wrap font-medium" x-text="currentFiche.content"></div>
             </div>
         </template>
     </div>
