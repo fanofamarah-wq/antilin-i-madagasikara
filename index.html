@@ -15,13 +15,14 @@
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, setDoc, onSnapshot, collection, query, addDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // Configuration et Initialisation
-        const firebaseConfig = JSON.parse(__firebase_config);
+        // Configuration et Initialisation sécurisée
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
         const db = getFirestore(app);
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'valizy-scout-pro';
 
+        // Rendre scoutApp disponible globalement pour Alpine JS
         window.scoutApp = function() {
             return {
                 tab: 'home',
@@ -84,7 +85,7 @@
                 setupRealtimeSync() {
                     if (!this.user) return;
 
-                    // Sync Settings (Corrected path to have even segments: artifacts/appId/public/data/settingsCollection/globalDoc)
+                    // Sync Settings
                     onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'global'), (docSnap) => {
                         if (docSnap.exists()) this.settings = docSnap.data();
                     }, (err) => console.error("Settings sync error", err));
@@ -138,7 +139,6 @@
 
                 async saveSettings() {
                     if (!this.user) return;
-                    // Corrected path for saving
                     await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'global'), this.settings);
                 },
 
@@ -190,7 +190,7 @@
                     setTimeout(() => { window.print(); }, 200);
                 }
             }
-        }
+        };
     </script>
     
     <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
