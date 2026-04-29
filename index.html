@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>VALIZY - Persistance Cloud</title>
+    <title>VALIZY - Cloud Sync Fixed</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
@@ -31,6 +31,7 @@
                 tab: 'home',
                 isConfigured: false,
                 showForm: false,
+                authStatus: 'Connecting...',
                 currentUser: {
                     uid: null,
                     pseudo: localStorage.getItem('valizy_pseudo') || 'Mpanazava_' + Math.floor(Math.random() * 1000)
@@ -60,69 +61,81 @@
 
                 async initApp() {
                     const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
-                    if (!firebaseConfig) return;
+                    if (!firebaseConfig) {
+                        this.authStatus = "Config Missing";
+                        return;
+                    }
 
                     if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
                     const auth = firebase.auth();
                     this.db = firebase.firestore();
 
-                    // RÈGLE 3 : Authentification d'abord
-                    try {
-                        let userCred;
-                        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                            userCred = await auth.signInWithCustomToken(__initial_auth_token);
+                    // RÈGLE 3 : Authentification d'abord avec gestion des retours
+                    auth.onAuthStateChanged(async (user) => {
+                        if (user) {
+                            this.currentUser.uid = user.uid;
+                            this.isConfigured = true;
+                            this.authStatus = "Online";
+                            this.setupRealtimeSync();
                         } else {
-                            userCred = await auth.signInAnonymously();
+                            this.authStatus = "Authenticating...";
+                            try {
+                                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                                    await auth.signInWithCustomToken(__initial_auth_token);
+                                } else {
+                                    await auth.signInAnonymously();
+                                }
+                            } catch (e) {
+                                console.error("Auth Error:", e);
+                                this.authStatus = "Auth Failed";
+                            }
                         }
-                        this.currentUser.uid = userCred.user.uid;
-                        this.isConfigured = true;
-                        
-                        // Une fois authentifié, on lance la synchro
-                        this.setupRealtimeSync();
-                    } catch (e) {
-                        console.error("Erreur Auth:", e);
-                    }
+                    });
                 },
 
                 setupRealtimeSync() {
                     if (!this.db || !this.currentUser.uid) return;
                     
-                    // RÈGLE 1 : Chemins stricts
+                    // RÈGLE 1 : Chemins de collection autorisés
                     const publicPath = `artifacts/${this.appId}/public/data`;
 
-                    // Synchronisation des Paramètres
+                    // Synchronisation des Paramètres (Document unique)
                     this.db.doc(`${publicPath}/settings/global`).onSnapshot(doc => {
                         if (doc.exists) {
                             this.settings = { ...this.settings, ...doc.data() };
+                        } else {
+                            // Initialiser le document si inexistant
+                            this.updateSettings();
                         }
                     }, err => console.error("Sync Settings:", err));
 
                     // Synchronisation des Collections
-                    const sync = (coll, target) => {
-                        this.db.collection(`${publicPath}/${coll}`).onSnapshot(snap => {
-                            this[target] = snap.docs.map(d => ({...d.data(), id: d.id}));
-                        }, err => console.error(`Sync ${coll}:`, err));
+                    const syncCollection = (collName, targetArray) => {
+                        this.db.collection(`${publicPath}/${collName}`)
+                            .onSnapshot(snap => {
+                                this[targetArray] = snap.docs.map(d => ({...d.data(), id: d.id}));
+                            }, err => console.error(`Sync ${collName} Error:`, err));
                     };
 
-                    sync('scouts', 'scouts');
-                    sync('events', 'events');
-                    sync('news', 'news');
-
-                    // Synchronisation du Chat
+                    syncCollection('scouts', 'scouts');
+                    syncCollection('events', 'events');
+                    syncCollection('news', 'news');
+                    
+                    // Chat Sync avec Tri
                     this.db.collection(`${publicPath}/chat`).onSnapshot(snap => {
                         this.messages = snap.docs
                             .map(d => ({...d.data(), id: d.id}))
                             .sort((a,b) => a.timestamp - b.timestamp);
                         this.$nextTick(() => this.scrollToBottom());
-                    }, err => console.error("Sync Chat:", err));
+                    }, err => console.error("Chat Sync Error:", err));
                 },
 
                 async updateSettings() {
                     if (!this.isConfigured || !this.db) return;
                     try {
                         const path = `artifacts/${this.appId}/public/data/settings/global`;
-                        await this.db.doc(path).set(this.settings, { merge: true });
-                    } catch (e) { console.error("Erreur save settings:", e); }
+                        await this.db.doc(path).set({...this.settings}, { merge: true });
+                    } catch (e) { console.error("Save Settings Error:", e); }
                 },
 
                 async addData(collectionName, data) {
@@ -135,7 +148,7 @@
                             author: this.currentUser.pseudo,
                             authorId: this.currentUser.uid
                         });
-                    } catch (e) { console.error("Erreur save data:", e); }
+                    } catch (e) { console.error(`Add ${collectionName} Error:`, e); }
                 },
 
                 async sendMessage() {
@@ -212,7 +225,7 @@
                 <div class="mt-auto p-5 bg-white/5 rounded-3xl border border-white/10">
                     <div class="flex items-center gap-2 mb-3">
                         <div :class="isConfigured ? 'bg-green-500' : 'bg-red-500'" class="w-2 h-2 rounded-full animate-pulse"></div>
-                        <span class="text-[9px] font-black uppercase tracking-widest" x-text="isConfigured ? 'Online' : 'Offline'"></span>
+                        <span class="text-[9px] font-black uppercase tracking-widest" x-text="authStatus"></span>
                     </div>
                     <label class="text-[8px] uppercase font-black text-amber-500 mb-1 block">Anaranao</label>
                     <input type="text" x-model="currentUser.pseudo" @blur="updatePseudo" class="bg-transparent text-xs font-bold w-full outline-none focus:text-amber-400 border-b border-white/10 pb-1">
@@ -282,7 +295,7 @@
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
                         <template x-for="s in scouts">
                             <div class="bg-white p-8 rounded-[2.5rem] border border-stone-200 text-center card-scout">
-                                <div class="w-20 h-20 bg-stone-100 rounded-full mx-auto mb-4 flex items-center justify-center font-black text-2xl text-stone-400" x-text="s.name[0]"></div>
+                                <div class="w-20 h-20 bg-stone-100 rounded-full mx-auto mb-4 flex items-center justify-center font-black text-2xl text-stone-400" x-text="s.name ? s.name[0] : 'S'"></div>
                                 <h4 class="font-black text-stone-800" x-text="s.name + ' ' + s.firstname"></h4>
                                 <p class="text-[10px] uppercase text-stone-400 font-bold mt-2" x-text="s.address"></p>
                             </div>
@@ -343,13 +356,25 @@
                     <h2 class="text-4xl font-black uppercase tracking-tighter">Paramètre</h2>
                     <div class="bg-white p-10 rounded-[3rem] border border-stone-200 space-y-6">
                         <div class="grid grid-cols-2 gap-6">
-                            <input type="text" x-model="settings.groupName" @blur="updateSettings" placeholder="Anaran'ny Vondrona" class="p-4 rounded-2xl bg-stone-50 outline-none ring-1 ring-stone-200 font-bold">
-                            <input type="text" x-model="settings.fivondronana" @blur="updateSettings" placeholder="Fivondronana" class="p-4 rounded-2xl bg-stone-50 outline-none ring-1 ring-stone-200 font-bold">
-                            <input type="text" x-model="settings.sampana" @blur="updateSettings" placeholder="Sampana" class="p-4 rounded-2xl bg-stone-50 outline-none ring-1 ring-stone-200 font-bold">
-                            <input type="text" x-model="settings.dina" @blur="updateSettings" placeholder="Dina" class="p-4 rounded-2xl bg-stone-50 outline-none ring-1 ring-stone-200 font-bold">
+                            <div>
+                                <label class="text-[10px] font-black uppercase text-stone-400 ml-2 mb-1 block">Anaran'ny Vondrona</label>
+                                <input type="text" x-model="settings.groupName" @blur="updateSettings" class="w-full p-4 rounded-2xl bg-stone-50 outline-none ring-1 ring-stone-200 font-bold">
+                            </div>
+                            <div>
+                                <label class="text-[10px] font-black uppercase text-stone-400 ml-2 mb-1 block">Fivondronana</label>
+                                <input type="text" x-model="settings.fivondronana" @blur="updateSettings" class="w-full p-4 rounded-2xl bg-stone-50 outline-none ring-1 ring-stone-200 font-bold">
+                            </div>
+                            <div>
+                                <label class="text-[10px] font-black uppercase text-stone-400 ml-2 mb-1 block">Sampana</label>
+                                <input type="text" x-model="settings.sampana" @blur="updateSettings" class="w-full p-4 rounded-2xl bg-stone-50 outline-none ring-1 ring-stone-200 font-bold">
+                            </div>
+                            <div>
+                                <label class="text-[10px] font-black uppercase text-stone-400 ml-2 mb-1 block">Dina</label>
+                                <input type="text" x-model="settings.dina" @blur="updateSettings" class="w-full p-4 rounded-2xl bg-stone-50 outline-none ring-1 ring-stone-200 font-bold">
+                            </div>
                         </div>
+                        <label class="text-[10px] font-black uppercase text-stone-400 ml-2 mb-1 block">Momba ny vondrona</label>
                         <textarea x-model="settings.aboutText" @blur="updateSettings" class="w-full p-4 rounded-2xl bg-stone-50 outline-none ring-1 ring-stone-200 font-bold h-24"></textarea>
-                        <input type="file" @change="handleImage($event, 'logo')" class="text-xs font-bold">
                         
                         <div class="pt-10 border-t">
                             <h3 class="font-black text-xs uppercase text-amber-600 mb-6">Hampiditra Vaovao</h3>
