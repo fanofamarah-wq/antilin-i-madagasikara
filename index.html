@@ -55,7 +55,6 @@
                 chatInput: '',
 
                 db: null,
-                // RÉCUPÉRATION CRITIQUE DE L'APP ID
                 appId: typeof __app_id !== 'undefined' ? __app_id : 'antilin-i-madagasikara',
 
                 async initApp() {
@@ -74,33 +73,39 @@
                         this.db = firebase.firestore();
                         const auth = firebase.auth();
 
-                        // AUTHENTICATION CORRECTE (ORDRE CRITIQUE)
-                        const performSignIn = async () => {
-                            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                                await auth.signInWithCustomToken(__initial_auth_token);
-                            } else {
-                                await auth.signInAnonymously();
+                        // Procédure d'authentification robuste
+                        const startAuth = async () => {
+                            try {
+                                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                                    await auth.signInWithCustomToken(__initial_auth_token);
+                                } else {
+                                    await auth.signInAnonymously();
+                                }
+                            } catch (err) {
+                                console.error("Auth error, retrying...", err);
+                                setTimeout(startAuth, 2000);
                             }
                         };
 
-                        auth.onAuthStateChanged(async (user) => {
+                        auth.onAuthStateChanged((user) => {
                             if (user) {
                                 this.currentUser.uid = user.uid;
                                 this.isConfigured = true;
                                 this.authStatus = "Mandeha tsara";
                                 this.setupRealtimeSync();
                             } else {
-                                await performSignIn();
+                                startAuth();
                             }
                         });
+
                     } catch (e) {
                         console.error("Init Error:", e);
                         this.authStatus = "Fahadisoana teknika";
                     }
                 },
 
-                // CHEMINS CORRIGÉS SELON LA RÈGLE 1
                 getCollectionPath(collectionName) {
+                    // RÈGLE CRITIQUE : Toujours utiliser ce préfixe de chemin
                     return `artifacts/${this.appId}/public/data/${collectionName}`;
                 },
 
@@ -112,32 +117,23 @@
                     settingsRef.onSnapshot(doc => {
                         if (doc.exists) {
                             this.settings = { ...this.settings, ...doc.data() };
-                        } else {
-                            // On ne crée pas automatiquement pour éviter les erreurs de permission au premier boot
-                            console.log("No settings found yet");
                         }
-                    }, err => console.error("Sync Settings Error:", err));
+                    }, err => console.error("Settings Sync Error:", err));
 
                     // Sync Collections
-                    const sync = (coll, target) => {
+                    const collections = ['scouts', 'events', 'news', 'chat'];
+                    collections.forEach(coll => {
                         this.db.collection(this.getCollectionPath(coll))
                             .onSnapshot(snap => {
-                                this[target] = snap.docs.map(d => ({...d.data(), id: d.id}));
+                                const data = snap.docs.map(d => ({...d.data(), id: d.id}));
+                                if (coll === 'chat') {
+                                    this.messages = data.sort((a,b) => (a.timestamp || 0) - (b.timestamp || 0));
+                                    this.$nextTick(() => this.scrollToBottom());
+                                } else {
+                                    this[coll] = data;
+                                }
                             }, err => console.error(`Sync ${coll} Error:`, err));
-                    };
-
-                    sync('scouts', 'scouts');
-                    sync('events', 'events');
-                    sync('news', 'news');
-                    
-                    // Sync Chat
-                    this.db.collection(this.getCollectionPath('chat'))
-                        .onSnapshot(snap => {
-                            this.messages = snap.docs
-                                .map(d => ({...d.data(), id: d.id}))
-                                .sort((a,b) => (a.timestamp || 0) - (b.timestamp || 0));
-                            this.$nextTick(() => this.scrollToBottom());
-                        }, err => console.error("Chat Error:", err));
+                    });
                 },
 
                 async updateSettings() {
@@ -152,13 +148,16 @@
                     if (!this.isConfigured || !this.db || !this.currentUser.uid) return;
                     try {
                         const path = this.getCollectionPath(collectionName);
+                        // Cette commande crée automatiquement la collection si elle n'existe pas
                         await this.db.collection(path).add({
                             ...data,
                             timestamp: Date.now(),
                             author: this.currentUser.pseudo,
                             authorId: this.currentUser.uid
                         });
-                    } catch (e) { console.error(`Add ${collectionName} Error:`, e); }
+                    } catch (e) { 
+                        console.error(`Add ${collectionName} Error:`, e); 
+                    }
                 },
 
                 async sendMessage() {
@@ -219,7 +218,7 @@
 
                 <div class="mt-auto p-5 bg-white/5 rounded-3xl border border-white/10">
                     <div class="flex items-center gap-2 mb-3">
-                        <div :class="isConfigured ? 'bg-green-500' : 'bg-red-500'" class="w-2 h-2 rounded-full shadow-[0_0_8px_rgba(239,68,68,0.5)]" :class="isConfigured ? 'shadow-green-500/50' : 'shadow-red-500/50'"></div>
+                        <div :class="isConfigured ? 'bg-green-500 shadow-green-500/50' : 'bg-red-500 shadow-red-500/50'" class="w-2 h-2 rounded-full shadow-[0_0_8px]"></div>
                         <span class="text-[9px] font-black uppercase tracking-widest" x-text="authStatus"></span>
                     </div>
                     <label class="text-[8px] uppercase font-black text-amber-500 mb-1 block">Anaranao</label>
