@@ -5,11 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>VALIZY - Gestion Scoutisme</title>
     
-    <!-- Scripts de base -->
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
 
-    <!-- Firebase SDK (Version Compat pour plus de stabilité dans l'iframe) -->
+    <!-- Firebase SDK Compat -->
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
@@ -17,30 +16,26 @@
     <style>
         body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #fcfcfc; }
         [x-cloak] { display: none !important; }
-        .card-scout { transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
-        .card-scout:hover { transform: translateY(-4px); box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.05); }
+        .card-scout { transition: all 0.3s ease; }
+        .card-scout:hover { transform: translateY(-2px); box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); }
         #chat-box::-webkit-scrollbar { width: 4px; }
         #chat-box::-webkit-scrollbar-thumb { background: #e5e7eb; border-radius: 10px; }
-        @media print {
-            .no-print { display: none !important; }
-            #print-section { display: block !important; }
-        }
     </style>
 </head>
 <body x-data="scoutApp()" x-init="initApp()" x-cloak class="text-stone-900">
 
     <script>
-        // On définit la fonction globalement AVANT Alpine
         window.scoutApp = function() {
             return {
                 tab: 'home',
                 showForm: false,
                 currentFiche: null,
-                user: null,
                 currentUser: {
+                    uid: null,
                     pseudo: localStorage.getItem('valizy_pseudo') || 'Skoto_' + Math.floor(Math.random() * 1000)
                 },
                 
+                // État initial (sera écrasé par Firebase)
                 settings: {
                     groupName: "Antilin'i Madagasikara",
                     fivondronana: "Fivondronana faha-17",
@@ -59,12 +54,14 @@
                     { id: 'settings', label: 'Paramètre', icon: '⚙️' }
                 ],
 
+                // Données synchronisées
                 news: [],
                 events: [],
                 scouts: [],
                 fiches: [],
                 messages: [],
 
+                // Formulaires
                 formEvent: { title: '', date: '' },
                 formScout: { name: '', firstname: '', address: '', phone: '', facebook: '', image: null },
                 formFiche: { title: '', category: '', participants: '', objective: '', content: '', remark: '' },
@@ -72,11 +69,9 @@
                 chatInput: '',
 
                 db: null,
-                auth: null,
                 appId: typeof __app_id !== 'undefined' ? __app_id : 'default-app-id',
 
                 async initApp() {
-                    // Protection contre les erreurs de config Firebase vides vues dans vos logs
                     let config;
                     try {
                         config = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
@@ -84,113 +79,104 @@
 
                     if (config && config.apiKey && config.apiKey !== "preview") {
                         if (!firebase.apps.length) firebase.initializeApp(config);
-                        this.auth = firebase.auth();
+                        const auth = firebase.auth();
                         this.db = firebase.firestore();
 
-                        // Auth
+                        // Authentification obligatoire avant requêtes
                         try {
+                            let userCred;
                             if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                                await this.auth.signInWithCustomToken(__initial_auth_token);
+                                userCred = await auth.signInWithCustomToken(__initial_auth_token);
                             } else {
-                                await this.auth.signInAnonymously();
+                                userCred = await auth.signInAnonymously();
                             }
+                            this.currentUser.uid = userCred.user.uid;
                             this.setupRealtimeSync();
                         } catch (e) { console.error("Erreur Auth:", e); }
                     } else {
-                        console.warn("Firebase non configuré : Mode local activé.");
+                        console.warn("Firebase non configuré. Les données ne seront pas sauvegardées.");
                     }
                 },
 
                 setupRealtimeSync() {
-                    if (!this.db) return;
+                    if (!this.db || !this.currentUser.uid) return;
                     const publicPath = `artifacts/${this.appId}/public/data`;
 
+                    // Sync Settings
                     this.db.doc(`${publicPath}/settings/global`).onSnapshot(doc => {
-                        if (doc.exists) this.settings = doc.data();
-                    }, err => console.log("Note: Document settings non trouvé"));
+                        if (doc.exists) this.settings = { ...this.settings, ...doc.data() };
+                    }, err => console.error("Sync Settings Error:", err));
 
-                    this.db.collection(`${publicPath}/news`).onSnapshot(s => this.news = s.docs.map(d => ({...d.data(), id: d.id})), e => {});
-                    this.db.collection(`${publicPath}/events`).onSnapshot(s => this.events = s.docs.map(d => ({...d.data(), id: d.id})), e => {});
-                    this.db.collection(`${publicPath}/scouts`).onSnapshot(s => this.scouts = s.docs.map(d => ({...d.data(), id: d.id})), e => {});
-                    this.db.collection(`${publicPath}/fiches`).onSnapshot(s => this.fiches = s.docs.map(d => ({...d.data(), id: d.id})), e => {});
-                    this.db.collection(`${publicPath}/chat`).onSnapshot(s => {
-                        this.messages = s.docs.map(d => ({...d.data(), id: d.id})).sort((a,b) => a.timestamp - b.timestamp);
+                    // Sync Collections
+                    const collections = ['news', 'events', 'scouts', 'fiches'];
+                    collections.forEach(col => {
+                        this.db.collection(`${publicPath}/${col}`).onSnapshot(snapshot => {
+                            this[col] = snapshot.docs.map(d => ({...d.data(), id: d.id}));
+                        }, err => console.error(`Sync ${col} Error:`, err));
+                    });
+
+                    // Sync Chat (Trié par temps)
+                    this.db.collection(`${publicPath}/chat`).onSnapshot(snapshot => {
+                        this.messages = snapshot.docs
+                            .map(d => ({...d.data(), id: d.id}))
+                            .sort((a,b) => a.timestamp - b.timestamp);
                         setTimeout(() => this.scrollToBottom(), 100);
-                    }, e => {});
+                    }, err => console.error("Sync Chat Error:", err));
                 },
 
-                async saveSettings() {
+                // ACTIONS DE SAUVEGARDE
+                async saveData(collectionName, data) {
                     if(!this.db) return;
-                    await this.db.doc(`artifacts/${this.appId}/public/data/settings/global`).set(this.settings);
+                    try {
+                        const path = `artifacts/${this.appId}/public/data/${collectionName}`;
+                        if (collectionName === 'settings/global') {
+                            await this.db.doc(path).set(data, { merge: true });
+                        } else {
+                            await this.db.collection(path).add({ ...data, timestamp: Date.now(), authorId: this.currentUser.uid });
+                        }
+                    } catch (e) { console.error("Erreur de sauvegarde:", e); }
                 },
 
                 async sendMessage() {
-                    if(!this.chatInput.trim() || !this.db) return;
-                    await this.db.collection(`artifacts/${this.appId}/public/data/chat`).add({
+                    if(!this.chatInput.trim()) return;
+                    await this.saveData('chat', {
                         user: this.currentUser.pseudo,
                         text: this.chatInput,
-                        time: new Date().toLocaleTimeString('mg-MG', {hour: '2-digit', minute:'2-digit'}),
-                        timestamp: Date.now()
+                        time: new Date().toLocaleTimeString('mg-MG', {hour: '2-digit', minute:'2-digit'})
                     });
                     this.chatInput = '';
                 },
 
-                async addNews() {
-                    if(!this.formNews.title || !this.db) return;
-                    await this.db.collection(`artifacts/${this.appId}/public/data/news`).add({ ...this.formNews, timestamp: Date.now() });
-                    this.formNews = { title: '', desc: '', date: '' };
-                },
-
-                async addEvent() {
-                    if(!this.formEvent.title || !this.db) return;
-                    await this.db.collection(`artifacts/${this.appId}/public/data/events`).add({ ...this.formEvent, timestamp: Date.now() });
-                    this.formEvent = { title: '', date: '' };
-                    this.showForm = false;
-                },
-
-                async addScout() {
-                    if(!this.formScout.name || !this.db) return;
-                    await this.db.collection(`artifacts/${this.appId}/public/data/scouts`).add({ ...this.formScout, timestamp: Date.now() });
-                    this.formScout = { name: '', firstname: '', address: '', phone: '', facebook: '', image: null };
-                    this.showForm = false;
-                },
-
-                async addFiche() {
-                    if(!this.formFiche.title || !this.db) return;
-                    await this.db.collection(`artifacts/${this.appId}/public/data/fiches`).add({ ...this.formFiche, timestamp: Date.now() });
-                    this.formFiche = { title: '', category: '', participants: '', objective: '', content: '', remark: '' };
-                    this.showForm = false;
-                },
-
-                handleImage(e, type) {
+                handleImage(e, target) {
                     const reader = new FileReader();
                     reader.onload = (f) => {
-                        if(type === 'scout') this.formScout.image = f.target.result;
-                        if(type === 'logo') { this.settings.logo = f.target.result; this.saveSettings(); }
+                        if(target === 'scout') this.formScout.image = f.target.result;
+                        if(target === 'logo') { 
+                            this.settings.logo = f.target.result; 
+                            this.saveData('settings/global', { logo: f.target.result });
+                        }
                     };
                     if(e.target.files[0]) reader.readAsDataURL(e.target.files[0]);
                 },
 
-                updatePseudo() { localStorage.setItem('valizy_pseudo', this.currentUser.pseudo); },
                 scrollToBottom() { const el = document.getElementById('chat-box'); if (el) el.scrollTop = el.scrollHeight; },
-                printFiche(f) { this.currentFiche = f; setTimeout(() => window.print(), 300); }
+                updatePseudo() { localStorage.setItem('valizy_pseudo', this.currentUser.pseudo); }
             }
         }
     </script>
 
-    <!-- Alpine chargé en dernier -->
     <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
 
-    <div class="flex h-screen overflow-hidden no-print">
+    <div class="flex h-screen overflow-hidden">
         
         <!-- SIDEBAR -->
-        <aside class="w-64 bg-[#2d1b15] text-white flex-shrink-0 hidden lg:flex flex-col border-r border-white/5">
+        <aside class="w-64 bg-[#1c1917] text-white flex-shrink-0 hidden lg:flex flex-col">
             <div class="p-6 h-full flex flex-col">
                 <div class="flex items-center gap-3 mb-10">
-                    <div class="w-10 h-10 bg-amber-600 rounded-xl flex items-center justify-center font-black text-white shadow-lg rotate-3 text-lg">V</div>
+                    <div class="w-10 h-10 bg-amber-600 rounded-xl flex items-center justify-center font-black text-white shadow-lg rotate-3">V</div>
                     <div>
-                        <h2 class="font-black text-lg leading-none tracking-tighter">VALIZY</h2>
-                        <p class="text-[9px] text-amber-500 font-bold uppercase tracking-widest" x-text="settings.groupName"></p>
+                        <h2 class="font-black text-lg leading-none">VALIZY</h2>
+                        <p class="text-[9px] text-amber-500 font-bold uppercase tracking-widest">Scoutisme Pro</p>
                     </div>
                 </div>
 
@@ -206,85 +192,115 @@
                 </nav>
 
                 <div class="mt-auto p-4 bg-white/5 rounded-2xl border border-white/10">
-                    <p class="text-[8px] uppercase font-black text-amber-500 mb-1">Mombamomba anao</p>
-                    <p class="text-xs font-bold truncate" x-text="currentUser.pseudo"></p>
+                    <p class="text-[8px] uppercase font-black text-amber-500 mb-1">Mpanoratra</p>
+                    <input type="text" x-model="currentUser.pseudo" @blur="updatePseudo" class="bg-transparent text-xs font-bold w-full outline-none focus:text-amber-400">
                 </div>
             </div>
         </aside>
 
-        <!-- MAIN -->
+        <!-- MAIN CONTENT -->
         <main class="flex-1 overflow-y-auto bg-stone-50">
-            <div class="max-w-4xl mx-auto p-6 lg:p-12">
+            <div class="max-w-5xl mx-auto p-6 lg:p-10">
 
                 <!-- HOME -->
-                <div x-show="tab === 'home'" class="space-y-10">
+                <div x-show="tab === 'home'" class="space-y-8">
                     <div class="bg-white p-8 rounded-[2.5rem] border border-stone-200 shadow-sm flex flex-col md:flex-row items-center gap-8">
-                        <div class="w-48 h-48 bg-stone-900 rounded-[2.5rem] flex items-center justify-center text-amber-500 shadow-xl rotate-3 shrink-0 overflow-hidden border-4 border-white">
-                            <template x-if="settings.logo">
-                                <img :src="settings.logo" class="w-full h-full object-cover">
-                            </template>
-                            <template x-if="!settings.logo">
-                                <span class="text-7xl font-black">V</span>
-                            </template>
-                        </div>
-                        <div class="text-center md:text-left">
-                            <h1 class="text-4xl lg:text-6xl font-black text-stone-900 uppercase tracking-tighter leading-none mb-4" x-text="settings.groupName"></h1>
-                            <div class="inline-flex bg-amber-100 text-amber-900 px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest mb-4" x-text="settings.fivondronana"></div>
-                            <p class="text-stone-400 font-bold uppercase tracking-widest text-[9px] block" x-text="settings.sampana + ' • ' + settings.dina"></p>
+                        <label class="cursor-pointer group relative">
+                            <div class="w-40 h-40 bg-stone-900 rounded-[2.5rem] flex items-center justify-center text-amber-500 shadow-xl overflow-hidden border-4 border-white">
+                                <template x-if="settings.logo">
+                                    <img :src="settings.logo" class="w-full h-full object-cover">
+                                </template>
+                                <template x-if="!settings.logo">
+                                    <span class="text-6xl font-black">V</span>
+                                </template>
+                            </div>
+                            <input type="file" @change="handleImage($event, 'logo')" class="hidden">
+                        </label>
+                        <div class="text-center md:text-left flex-1">
+                            <h1 class="text-4xl lg:text-5xl font-black text-stone-900 uppercase tracking-tighter mb-2" x-text="settings.groupName"></h1>
+                            <div class="inline-flex bg-amber-100 text-amber-900 px-4 py-1 rounded-full text-[10px] font-black uppercase tracking-widest mb-4" x-text="settings.fivondronana"></div>
+                            <p class="text-stone-500 text-sm font-medium italic" x-text="settings.aboutText"></p>
                         </div>
                     </div>
 
-                    <!-- Grille News/About -->
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div class="bg-white p-8 rounded-[2.5rem] border border-stone-200">
-                            <h3 class="font-black text-[9px] uppercase tracking-[0.2em] text-stone-400 mb-6">Vaovao sy ny ho avy</h3>
+                        <!-- News Card -->
+                        <div class="bg-white p-8 rounded-[2rem] border border-stone-200">
+                            <h3 class="font-black text-[10px] uppercase tracking-widest text-stone-400 mb-6">Vaovao vao haingana</h3>
                             <div class="space-y-6">
                                 <template x-for="n in news">
-                                    <div class="border-b border-stone-50 pb-4 last:border-none">
-                                        <p class="text-[9px] font-black text-amber-600 mb-1" x-text="n.date"></p>
-                                        <h4 class="font-black text-stone-800 text-lg leading-tight" x-text="n.title"></h4>
-                                        <p class="text-xs text-stone-500 mt-2 font-medium" x-text="n.desc"></p>
+                                    <div class="border-l-2 border-amber-500 pl-4 py-1">
+                                        <p class="text-[10px] font-bold text-amber-600" x-text="n.date"></p>
+                                        <h4 class="font-black text-stone-800" x-text="n.title"></h4>
+                                        <p class="text-xs text-stone-500 mt-1" x-text="n.desc"></p>
                                     </div>
-                                </template>
-                                <template x-if="news.length === 0">
-                                    <p class="text-xs text-stone-400 italic">Tsy misy vaovao amin'izao fotoana izao.</p>
                                 </template>
                             </div>
                         </div>
-
-                        <div class="bg-stone-900 p-8 rounded-[2.5rem] text-white flex flex-col justify-between">
-                            <div>
-                                <h3 class="font-black text-[9px] uppercase tracking-[0.2em] text-amber-500 mb-6">Tanjona</h3>
-                                <p class="text-2xl font-medium leading-relaxed italic text-stone-300" x-text="settings.aboutText"></p>
-                            </div>
-                            <div class="mt-12 pt-6 border-t border-white/10">
-                                <p class="text-[10px] font-black uppercase tracking-widest text-amber-500">Filamatra</p>
-                                <p class="text-sm font-bold italic" x-text="'« ' + settings.dina + ' »'"></p>
+                        <!-- Goal Card -->
+                        <div class="bg-stone-900 p-8 rounded-[2rem] text-white">
+                            <h3 class="font-black text-[10px] uppercase tracking-widest text-amber-500 mb-6">Filamatra</h3>
+                            <p class="text-2xl font-bold italic leading-tight" x-text="'« ' + settings.dina + ' »'"></p>
+                            <div class="mt-8 pt-6 border-t border-white/10">
+                                <p class="text-[10px] uppercase text-stone-500 font-bold">Sampana</p>
+                                <p class="text-lg font-black" x-text="settings.sampana"></p>
                             </div>
                         </div>
                     </div>
                 </div>
 
-                <!-- AUTRES ONGLETS (STRUCTURE GARDEE) -->
-                <div x-show="tab === 'calendar'" class="space-y-6">
-                    <div class="flex justify-between items-center mb-6">
-                        <h2 class="text-3xl font-black uppercase tracking-tighter">Programme</h2>
-                        <button @click="showForm = !showForm" class="bg-stone-900 text-white px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest" x-text="showForm ? '✕' : '+ Programa'"></button>
+                <!-- MEMBERS (ZATOVO) -->
+                <div x-show="tab === 'members'" class="space-y-6">
+                    <div class="flex justify-between items-center">
+                        <h2 class="text-3xl font-black uppercase tracking-tighter">Ireo Zatovo</h2>
+                        <button @click="showForm = !showForm" class="bg-stone-900 text-white px-6 py-2.5 rounded-xl text-[10px] font-black uppercase" x-text="showForm ? 'Hakatona' : '+ Zatovo Vaovao'"></button>
                     </div>
-                    <div x-show="showForm" class="bg-white p-6 rounded-2xl border border-stone-200 mb-6">
+
+                    <div x-show="showForm" class="bg-white p-8 rounded-[2rem] border-2 border-amber-100 shadow-xl space-y-4">
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <input type="text" x-model="formEvent.title" placeholder="Inona ny atao?" class="w-full p-3 rounded-xl ring-1 ring-stone-200 outline-none font-bold text-sm">
-                            <input type="date" x-model="formEvent.date" class="w-full p-3 rounded-xl ring-1 ring-stone-200 outline-none font-bold text-sm">
+                            <input type="text" x-model="formScout.name" placeholder="Anarana" class="w-full p-4 rounded-xl bg-stone-50 border-none ring-1 ring-stone-200 outline-none font-bold">
+                            <input type="text" x-model="formScout.firstname" placeholder="Fanampiny" class="w-full p-4 rounded-xl bg-stone-50 border-none ring-1 ring-stone-200 outline-none font-bold">
                         </div>
-                        <button @click="addEvent()" class="mt-4 w-full bg-amber-700 text-white py-3 rounded-xl font-black uppercase text-[10px]">Tehirizina</button>
+                        <input type="text" x-model="formScout.address" placeholder="Adiresy" class="w-full p-4 rounded-xl bg-stone-50 border-none ring-1 ring-stone-200 outline-none font-bold">
+                        <button @click="addScout(); showForm = false" class="w-full bg-amber-600 text-white py-4 rounded-xl font-black uppercase text-xs">Tehirizina ao amin'ny Vondrona</button>
                     </div>
-                    <div class="space-y-3">
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                        <template x-for="s in scouts">
+                            <div class="bg-white p-6 rounded-[2rem] border border-stone-200 card-scout">
+                                <div class="w-20 h-20 bg-stone-100 rounded-2xl mx-auto mb-4 overflow-hidden border-2 border-white shadow-sm">
+                                    <template x-if="s.image"><img :src="s.image" class="w-full h-full object-cover"></template>
+                                    <template x-if="!s.image"><div class="w-full h-full flex items-center justify-center text-2xl font-black text-stone-300" x-text="s.name[0]"></div></template>
+                                </div>
+                                <h4 class="text-center font-black text-stone-800 uppercase tracking-tight" x-text="s.name + ' ' + s.firstname"></h4>
+                                <p class="text-center text-[10px] font-bold text-stone-400 mt-1 uppercase" x-text="s.address"></p>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+
+                <!-- PROGRAMME (CALENDAR) -->
+                <div x-show="tab === 'calendar'" class="space-y-6">
+                    <div class="flex justify-between items-center">
+                        <h2 class="text-3xl font-black uppercase tracking-tighter">Programme</h2>
+                        <button @click="showForm = !showForm" class="bg-stone-900 text-white px-6 py-2.5 rounded-xl text-[10px] font-black uppercase" x-text="showForm ? 'Hakatona' : '+ Programa'"></button>
+                    </div>
+                    
+                    <div x-show="showForm" class="bg-white p-6 rounded-2xl border border-stone-200">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <input type="text" x-model="formEvent.title" placeholder="Inona ny atao?" class="p-4 rounded-xl bg-stone-50 outline-none font-bold ring-1 ring-stone-100">
+                            <input type="date" x-model="formEvent.date" class="p-4 rounded-xl bg-stone-50 outline-none font-bold ring-1 ring-stone-100">
+                        </div>
+                        <button @click="saveData('events', formEvent); formEvent={title:'', date:''}; showForm=false" class="mt-4 w-full bg-amber-600 text-white py-3 rounded-xl font-black uppercase text-xs">Ampiana</button>
+                    </div>
+
+                    <div class="space-y-4">
                         <template x-for="e in events">
-                            <div class="bg-white p-4 rounded-2xl border border-stone-200 flex items-center justify-between card-scout">
-                                <div class="flex items-center gap-4">
-                                    <div class="w-14 h-14 bg-stone-100 rounded-xl flex flex-col items-center justify-center font-black">
-                                        <span class="text-[8px] text-amber-600 uppercase" x-text="new Date(e.date).toLocaleString('mg', {month:'short'})"></span>
-                                        <span class="text-xl text-stone-800" x-text="new Date(e.date).getDate() || '??'"></span>
+                            <div class="bg-white p-5 rounded-2xl border border-stone-200 flex items-center justify-between card-scout">
+                                <div class="flex items-center gap-6">
+                                    <div class="text-center px-4 py-2 bg-stone-100 rounded-xl">
+                                        <p class="text-[9px] font-black text-amber-600 uppercase" x-text="new Date(e.date).toLocaleString('mg', {month:'short'})"></p>
+                                        <p class="text-xl font-black text-stone-800" x-text="new Date(e.date).getDate()"></p>
                                     </div>
                                     <h4 class="font-black text-lg text-stone-800" x-text="e.title"></h4>
                                 </div>
@@ -293,68 +309,60 @@
                     </div>
                 </div>
 
-                <!-- CHAT -->
-                <div x-show="tab === 'chat'" class="h-[calc(100vh-12rem)] flex flex-col">
-                    <div class="mb-6 flex justify-between items-center">
-                        <h2 class="text-3xl font-black uppercase tracking-tighter">Tapatapa-pira</h2>
-                        <input type="text" x-model="currentUser.pseudo" @blur="updatePseudo" class="bg-white border px-3 py-1.5 rounded-lg text-xs font-bold w-32 focus:ring-2 focus:ring-amber-500 outline-none">
-                    </div>
-                    <div class="flex-1 bg-white rounded-[2rem] border border-stone-200 flex flex-col overflow-hidden shadow-sm">
-                        <div id="chat-box" class="flex-1 overflow-y-auto p-6 space-y-4">
+                <!-- CHAT (TAPATAPA-PIRA) -->
+                <div x-show="tab === 'chat'" class="h-[calc(100vh-10rem)] flex flex-col">
+                    <div class="flex-1 bg-white rounded-[2.5rem] border border-stone-200 flex flex-col overflow-hidden shadow-sm">
+                        <div id="chat-box" class="flex-1 overflow-y-auto p-8 space-y-6 bg-stone-50/30">
                             <template x-for="m in messages">
                                 <div :class="m.user === currentUser.pseudo ? 'items-end' : 'items-start'" class="flex flex-col">
-                                    <div class="flex items-baseline gap-2 mb-1">
+                                    <div class="flex items-center gap-2 mb-1 px-2">
                                         <span class="text-[9px] font-black uppercase text-stone-400" x-text="m.user"></span>
-                                        <span class="text-[8px] text-stone-300" x-text="m.time"></span>
+                                        <span class="text-[8px] text-stone-300 font-bold" x-text="m.time"></span>
                                     </div>
-                                    <div :class="m.user === currentUser.pseudo ? 'bg-amber-600 text-white rounded-tr-none' : 'bg-stone-100 text-stone-800 rounded-tl-none'" 
-                                         class="px-4 py-2 rounded-2xl max-w-[80%] text-sm font-medium shadow-sm" x-text="m.text"></div>
+                                    <div :class="m.user === currentUser.pseudo ? 'bg-amber-600 text-white rounded-tr-none' : 'bg-white text-stone-800 rounded-tl-none border border-stone-200'" 
+                                         class="px-5 py-3 rounded-[1.25rem] max-w-[75%] text-sm font-semibold shadow-sm" x-text="m.text"></div>
                                 </div>
                             </template>
                         </div>
-                        <div class="p-4 bg-stone-50 border-t flex gap-2">
-                            <input type="text" x-model="chatInput" @keyup.enter="sendMessage" placeholder="Soraty eto ny hafatra..." class="flex-1 bg-white p-3 rounded-xl ring-1 ring-stone-200 outline-none font-medium text-sm">
-                            <button @click="sendMessage" class="bg-amber-600 text-white px-6 rounded-xl font-black uppercase text-[10px]">Handefa</button>
+                        <div class="p-6 bg-white border-t flex gap-3">
+                            <input type="text" x-model="chatInput" @keyup.enter="sendMessage" placeholder="Soraty eto ny dinika..." class="flex-1 bg-stone-100 p-4 rounded-2xl outline-none font-bold text-sm focus:ring-2 focus:ring-amber-500">
+                            <button @click="sendMessage" class="bg-stone-900 text-white px-8 rounded-2xl font-black uppercase text-[10px] hover:bg-amber-700 transition-colors">Handefa</button>
                         </div>
                     </div>
                 </div>
 
-                <!-- PARAMETRES -->
+                <!-- SETTINGS -->
                 <div x-show="tab === 'settings'" class="space-y-8">
-                    <h2 class="text-3xl font-black uppercase tracking-tighter mb-8">Paramètres</h2>
-                    <div class="bg-white p-8 rounded-[2rem] border border-stone-200">
-                        <h3 class="font-black text-xs uppercase tracking-widest text-amber-600 mb-6">Configuration</h3>
-                        <div class="grid grid-cols-1 gap-6">
-                            <input type="text" x-model="settings.groupName" @blur="saveSettings" placeholder="Vondrona" class="w-full p-4 rounded-xl ring-1 ring-stone-100 outline-none font-bold">
-                            <input type="text" x-model="settings.fivondronana" @blur="saveSettings" placeholder="Fivondronana" class="w-full p-4 rounded-xl ring-1 ring-stone-100 outline-none font-bold">
+                    <h2 class="text-3xl font-black uppercase tracking-tighter">Paramètres</h2>
+                    <div class="bg-white p-8 rounded-[2rem] border border-stone-200 space-y-6">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div class="space-y-2">
+                                <label class="text-[10px] font-black uppercase text-stone-400 ml-2">Anaran'ny Vondrona</label>
+                                <input type="text" x-model="settings.groupName" @blur="saveData('settings/global', settings)" class="w-full p-4 rounded-xl bg-stone-50 border-none ring-1 ring-stone-200 font-bold">
+                            </div>
+                            <div class="space-y-2">
+                                <label class="text-[10px] font-black uppercase text-stone-400 ml-2">Fivondronana</label>
+                                <input type="text" x-model="settings.fivondronana" @blur="saveData('settings/global', settings)" class="w-full p-4 rounded-xl bg-stone-50 border-none ring-1 ring-stone-200 font-bold">
+                            </div>
+                        </div>
+                        <div class="space-y-2">
+                            <label class="text-[10px] font-black uppercase text-stone-400 ml-2">Filamatra (Dina)</label>
+                            <input type="text" x-model="settings.dina" @blur="saveData('settings/global', settings)" class="w-full p-4 rounded-xl bg-stone-50 border-none ring-1 ring-stone-200 font-bold italic text-amber-600">
                         </div>
                     </div>
-                    <div class="bg-white p-8 rounded-[2rem] border border-stone-200">
-                        <h3 class="font-black text-xs uppercase tracking-widest text-amber-600 mb-6">Nouvelle Actualité</h3>
+
+                    <div class="bg-stone-900 p-8 rounded-[2rem] text-white">
+                        <h3 class="font-black text-xs uppercase tracking-widest text-amber-500 mb-6">Hampiditra Vaovao</h3>
                         <div class="space-y-4">
-                            <input type="text" x-model="formNews.title" placeholder="Titre" class="w-full p-4 rounded-xl ring-1 ring-stone-100 outline-none font-bold">
-                            <input type="text" x-model="formNews.date" placeholder="Date" class="w-full p-4 rounded-xl ring-1 ring-stone-100 outline-none font-bold">
-                            <textarea x-model="formNews.desc" placeholder="Contenu" class="w-full p-4 rounded-xl ring-1 ring-stone-100 outline-none font-bold"></textarea>
-                            <button @click="addNews()" class="bg-stone-900 text-white px-8 py-3 rounded-xl font-black uppercase text-[10px]">Ajouter</button>
+                            <input type="text" x-model="formNews.title" placeholder="Lohahevitra" class="w-full p-4 rounded-xl bg-white/5 border-none ring-1 ring-white/10 font-bold">
+                            <textarea x-model="formNews.desc" placeholder="Ny tsara ho fantatra..." class="w-full p-4 rounded-xl bg-white/5 border-none ring-1 ring-white/10 font-bold h-32"></textarea>
+                            <button @click="saveData('news', {title: formNews.title, desc: formNews.desc, date: new Date().toLocaleDateString('mg')}); formNews={title:'', desc:''}" class="bg-amber-600 text-white px-8 py-3 rounded-xl font-black uppercase text-[10px]">Hampiditra</button>
                         </div>
                     </div>
                 </div>
 
             </div>
         </main>
-    </div>
-
-    <!-- ZONE D'IMPRESSION -->
-    <div id="print-section" class="hidden p-16 bg-white" x-show="currentFiche">
-        <template x-if="currentFiche">
-            <div class="max-w-3xl mx-auto">
-                <div class="border-b-4 border-stone-900 pb-6 mb-8">
-                    <h1 class="text-xl font-black uppercase" x-text="settings.groupName"></h1>
-                </div>
-                <h2 class="text-4xl font-black text-stone-900 mb-8" x-text="currentFiche.title"></h2>
-                <div class="text-base leading-relaxed whitespace-pre-wrap font-medium" x-text="currentFiche.content"></div>
-            </div>
-        </template>
     </div>
 
 </body>
