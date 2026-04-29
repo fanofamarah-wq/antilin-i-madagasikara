@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>VALIZY - Cloud Sync Fixed</title>
+    <title>VALIZY - Persistance Fixée</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
@@ -31,7 +31,7 @@
                 tab: 'home',
                 isConfigured: false,
                 showForm: false,
-                authStatus: 'Connecting...',
+                authStatus: 'Mampifandray...',
                 currentUser: {
                     uid: null,
                     pseudo: localStorage.getItem('valizy_pseudo') || 'Mpanazava_' + Math.floor(Math.random() * 1000)
@@ -62,7 +62,7 @@
                 async initApp() {
                     const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
                     if (!firebaseConfig) {
-                        this.authStatus = "Config Missing";
+                        this.authStatus = "Tsy hita ny config";
                         return;
                     }
 
@@ -70,15 +70,15 @@
                     const auth = firebase.auth();
                     this.db = firebase.firestore();
 
-                    // RÈGLE 3 : Authentification d'abord avec gestion des retours
+                    // GESTION AUTHENTIFICATION (Règle 3)
                     auth.onAuthStateChanged(async (user) => {
                         if (user) {
                             this.currentUser.uid = user.uid;
                             this.isConfigured = true;
-                            this.authStatus = "Online";
+                            this.authStatus = "Mandeha tsara";
+                            // On lance la synchro uniquement ici
                             this.setupRealtimeSync();
                         } else {
-                            this.authStatus = "Authenticating...";
                             try {
                                 if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
                                     await auth.signInWithCustomToken(__initial_auth_token);
@@ -86,8 +86,8 @@
                                     await auth.signInAnonymously();
                                 }
                             } catch (e) {
-                                console.error("Auth Error:", e);
-                                this.authStatus = "Auth Failed";
+                                console.error("Erreur Auth:", e);
+                                this.authStatus = "Tsy nahomby ny fidirana";
                             }
                         }
                     });
@@ -96,46 +96,44 @@
                 setupRealtimeSync() {
                     if (!this.db || !this.currentUser.uid) return;
                     
-                    // RÈGLE 1 : Chemins de collection autorisés
                     const publicPath = `artifacts/${this.appId}/public/data`;
 
-                    // Synchronisation des Paramètres (Document unique)
+                    // 1. Synchro des Paramètres avec sauvegarde par défaut si vide
                     this.db.doc(`${publicPath}/settings/global`).onSnapshot(doc => {
                         if (doc.exists) {
                             this.settings = { ...this.settings, ...doc.data() };
                         } else {
-                            // Initialiser le document si inexistant
-                            this.updateSettings();
+                            this.updateSettings(); // Créer le doc initial s'il n'existe pas
                         }
-                    }, err => console.error("Sync Settings:", err));
+                    }, err => console.error("Sync Settings Error:", err));
 
-                    // Synchronisation des Collections
-                    const syncCollection = (collName, targetArray) => {
-                        this.db.collection(`${publicPath}/${collName}`)
+                    // 2. Synchro des Collections (Zatovo, Programa, Vaovao)
+                    const sync = (coll, target) => {
+                        this.db.collection(`${publicPath}/${coll}`)
                             .onSnapshot(snap => {
-                                this[targetArray] = snap.docs.map(d => ({...d.data(), id: d.id}));
-                            }, err => console.error(`Sync ${collName} Error:`, err));
+                                this[target] = snap.docs.map(d => ({...d.data(), id: d.id}));
+                            }, err => console.error(`Sync ${coll} Error:`, err));
                     };
 
-                    syncCollection('scouts', 'scouts');
-                    syncCollection('events', 'events');
-                    syncCollection('news', 'news');
+                    sync('scouts', 'scouts');
+                    sync('events', 'events');
+                    sync('news', 'news');
                     
-                    // Chat Sync avec Tri
+                    // 3. Synchro Chat
                     this.db.collection(`${publicPath}/chat`).onSnapshot(snap => {
                         this.messages = snap.docs
                             .map(d => ({...d.data(), id: d.id}))
-                            .sort((a,b) => a.timestamp - b.timestamp);
+                            .sort((a,b) => (a.timestamp || 0) - (b.timestamp || 0));
                         this.$nextTick(() => this.scrollToBottom());
-                    }, err => console.error("Chat Sync Error:", err));
+                    }, err => console.error("Chat Error:", err));
                 },
 
                 async updateSettings() {
                     if (!this.isConfigured || !this.db) return;
                     try {
                         const path = `artifacts/${this.appId}/public/data/settings/global`;
-                        await this.db.doc(path).set({...this.settings}, { merge: true });
-                    } catch (e) { console.error("Save Settings Error:", e); }
+                        await this.db.doc(path).set(this.settings, { merge: true });
+                    } catch (e) { console.error("Error saving settings:", e); }
                 },
 
                 async addData(collectionName, data) {
