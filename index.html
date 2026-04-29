@@ -5,24 +5,33 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>VALIZY - Gestion Scoutisme</title>
     
+    <!-- Scripts de base -->
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
 
-    <!-- Firebase SDK en tant que module -->
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, setDoc, onSnapshot, collection, query, addDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+    <!-- Firebase SDK (Version Compatibility) -->
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
 
-        // Initialisation sécurisée pour éviter les erreurs de console
-        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : { apiKey: "preview-key" };
-        const app = initializeApp(firebaseConfig);
-        const auth = getAuth(app);
-        const db = getFirestore(app);
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'valizy-scout-pro';
+    <style>
+        body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #fcfcfc; }
+        [x-cloak] { display: none !important; }
+        .card-scout { transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+        .card-scout:hover { transform: translateY(-4px); box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.05); }
+        #chat-box::-webkit-scrollbar { width: 4px; }
+        #chat-box::-webkit-scrollbar-thumb { background: #e5e7eb; border-radius: 10px; }
+        @media print {
+            .no-print { display: none !important; }
+            #print-section { display: block !important; }
+        }
+    </style>
+</head>
+<body x-data="scoutApp()" x-init="initApp()" x-cloak class="text-stone-900">
 
-        // CRUCIAL : On attache la logique à window pour qu'Alpine JS y ait accès
-        window.scoutApp = function() {
+    <script>
+        // Logique principale de l'application
+        function scoutApp() {
             return {
                 tab: 'home',
                 showForm: false,
@@ -62,56 +71,66 @@
                 formNews: { title: '', desc: '', date: '' },
                 chatInput: '',
 
-                async init() {
-                    // Authentification avec gestion d'erreur pour éviter le blocage Alpine
+                // Firebase Services
+                db: null,
+                auth: null,
+                appId: typeof __app_id !== 'undefined' ? __app_id : 'valizy-scout-pro',
+
+                async initApp() {
+                    const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : { apiKey: "preview" };
+                    
+                    // Initialisation Compat
+                    if (!firebase.apps.length) {
+                        firebase.initializeApp(firebaseConfig);
+                    }
+                    this.auth = firebase.auth();
+                    this.db = firebase.firestore();
+
+                    // Authentification
                     try {
                         if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                            await signInWithCustomToken(auth, __initial_auth_token);
+                            await this.auth.signInWithCustomToken(__initial_auth_token);
                         } else {
-                            await signInAnonymously(auth);
+                            await this.auth.signInAnonymously();
                         }
-                    } catch (e) { 
-                        console.warn("Auth info: Mode local ou clé manquante"); 
-                    }
+                    } catch (e) { console.warn("Firebase Auth Note: Mode déconnecté ou clé invalide"); }
 
-                    onAuthStateChanged(auth, (user) => {
+                    this.auth.onAuthStateChanged((user) => {
                         this.user = user;
-                        if (user) {
-                            this.setupRealtimeSync();
-                        }
+                        if (user) this.setupRealtimeSync();
                     });
                 },
 
                 setupRealtimeSync() {
-                    if (!this.user) return;
+                    const publicPath = `artifacts/${this.appId}/public/data`;
 
-                    // Sync Settings
-                    onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'global'), (docSnap) => {
-                        if (docSnap.exists()) this.settings = docSnap.data();
-                    }, (err) => console.error("Sync error:", err));
+                    // Settings
+                    this.db.doc(`${publicPath}/settings/global`).onSnapshot((doc) => {
+                        if (doc.exists) this.settings = doc.data();
+                    });
 
-                    // Sync News
-                    onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'news'), (snap) => {
+                    // News
+                    this.db.collection(`${publicPath}/news`).onSnapshot((snap) => {
                         this.news = snap.docs.map(d => ({...d.data(), id: d.id}));
                     });
 
-                    // Sync Events
-                    onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'events'), (snap) => {
+                    // Events
+                    this.db.collection(`${publicPath}/events`).onSnapshot((snap) => {
                         this.events = snap.docs.map(d => ({...d.data(), id: d.id}));
                     });
 
-                    // Sync Scouts
-                    onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'scouts'), (snap) => {
+                    // Scouts
+                    this.db.collection(`${publicPath}/scouts`).onSnapshot((snap) => {
                         this.scouts = snap.docs.map(d => ({...d.data(), id: d.id}));
                     });
 
-                    // Sync Fiches
-                    onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'fiches'), (snap) => {
+                    // Fiches
+                    this.db.collection(`${publicPath}/fiches`).onSnapshot((snap) => {
                         this.fiches = snap.docs.map(d => ({...d.data(), id: d.id}));
                     });
 
-                    // Sync Chat
-                    onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'chat'), (snap) => {
+                    // Chat
+                    this.db.collection(`${publicPath}/chat`).onSnapshot((snap) => {
                         const msgs = snap.docs.map(d => ({...d.data(), id: d.id}));
                         this.messages = msgs.sort((a, b) => a.timestamp - b.timestamp);
                         setTimeout(() => this.scrollToBottom(), 100);
@@ -137,13 +156,14 @@
                 },
 
                 async saveSettings() {
-                    if (!this.user) return;
-                    await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'global'), this.settings);
+                    const publicPath = `artifacts/${this.appId}/public/data`;
+                    await this.db.doc(`${publicPath}/settings/global`).set(this.settings);
                 },
 
                 async sendMessage() {
                     if(!this.chatInput.trim() || !this.user) return;
-                    await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'chat'), {
+                    const publicPath = `artifacts/${this.appId}/public/data`;
+                    await this.db.collection(`${publicPath}/chat`).add({
                         user: this.currentUser.pseudo,
                         text: this.chatInput,
                         time: new Date().toLocaleTimeString('mg-MG', {hour: '2-digit', minute:'2-digit'}),
@@ -154,27 +174,31 @@
 
                 async addNews() {
                     if(!this.formNews.title || !this.user) return;
-                    await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'news'), { ...this.formNews, timestamp: Date.now() });
+                    const publicPath = `artifacts/${this.appId}/public/data`;
+                    await this.db.collection(`${publicPath}/news`).add({ ...this.formNews, timestamp: Date.now() });
                     this.formNews = { title: '', desc: '', date: '' };
                 },
 
                 async addEvent() {
                     if(!this.formEvent.title || !this.user) return;
-                    await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'events'), { ...this.formEvent, timestamp: Date.now() });
+                    const publicPath = `artifacts/${this.appId}/public/data`;
+                    await this.db.collection(`${publicPath}/events`).add({ ...this.formEvent, timestamp: Date.now() });
                     this.formEvent = { title: '', date: '' };
                     this.showForm = false;
                 },
 
                 async addScout() {
                     if(!this.formScout.name || !this.user) return;
-                    await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'scouts'), { ...this.formScout, timestamp: Date.now() });
+                    const publicPath = `artifacts/${this.appId}/public/data`;
+                    await this.db.collection(`${publicPath}/scouts`).add({ ...this.formScout, timestamp: Date.now() });
                     this.formScout = { name: '', firstname: '', address: '', phone: '', facebook: '', image: null };
                     this.showForm = false;
                 },
 
                 async addFiche() {
                     if(!this.formFiche.title || !this.user) return;
-                    await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'fiches'), { ...this.formFiche, timestamp: Date.now() });
+                    const publicPath = `artifacts/${this.appId}/public/data`;
+                    await this.db.collection(`${publicPath}/fiches`).add({ ...this.formFiche, timestamp: Date.now() });
                     this.formFiche = { title: '', category: '', participants: '', objective: '', content: '', remark: '' };
                     this.showForm = false;
                 },
@@ -189,26 +213,11 @@
                     setTimeout(() => { window.print(); }, 200);
                 }
             }
-        };
-    </script>
-    
-    <!-- Alpine JS chargé APRES la définition de scoutApp sur window -->
-    <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
-
-    <style>
-        body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #fcfcfc; }
-        [x-cloak] { display: none !important; }
-        .card-scout { transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
-        .card-scout:hover { transform: translateY(-4px); box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.05); }
-        #chat-box::-webkit-scrollbar { width: 4px; }
-        #chat-box::-webkit-scrollbar-thumb { background: #e5e7eb; border-radius: 10px; }
-        @media print {
-            .no-print { display: none !important; }
-            #print-section { display: block !important; }
         }
-    </style>
-</head>
-<body x-data="scoutApp()" x-cloak class="text-stone-900">
+    </script>
+
+    <!-- Alpine JS à la fin pour s'assurer que scoutApp est défini -->
+    <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
 
     <div class="flex h-screen overflow-hidden no-print">
         
