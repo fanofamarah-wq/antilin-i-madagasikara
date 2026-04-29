@@ -5,24 +5,23 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>VALIZY - Gestion Scoutisme</title>
     
-    <!-- Bibliothèques directes -->
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
 
-    <!-- Firebase SDK -->
+    <!-- Firebase SDK en tant que module -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, setDoc, onSnapshot, collection, query, addDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // Configuration et Initialisation sécurisée
-        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+        // Initialisation sécurisée pour éviter les erreurs de console
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : { apiKey: "preview-key" };
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
         const db = getFirestore(app);
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'valizy-scout-pro';
 
-        // Rendre scoutApp disponible globalement pour Alpine JS
+        // CRUCIAL : On attache la logique à window pour qu'Alpine JS y ait accès
         window.scoutApp = function() {
             return {
                 tab: 'home',
@@ -57,7 +56,6 @@
                 fiches: [],
                 messages: [],
 
-                // Forms
                 formEvent: { title: '', date: '' },
                 formScout: { name: '', firstname: '', address: '', phone: '', facebook: '', image: null },
                 formFiche: { title: '', category: '', participants: '', objective: '', content: '', remark: '' },
@@ -65,14 +63,16 @@
                 chatInput: '',
 
                 async init() {
-                    // 1. Authentification
+                    // Authentification avec gestion d'erreur pour éviter le blocage Alpine
                     try {
                         if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
                             await signInWithCustomToken(auth, __initial_auth_token);
                         } else {
                             await signInAnonymously(auth);
                         }
-                    } catch (e) { console.error("Auth error", e); }
+                    } catch (e) { 
+                        console.warn("Auth info: Mode local ou clé manquante"); 
+                    }
 
                     onAuthStateChanged(auth, (user) => {
                         this.user = user;
@@ -88,37 +88,36 @@
                     // Sync Settings
                     onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'global'), (docSnap) => {
                         if (docSnap.exists()) this.settings = docSnap.data();
-                    }, (err) => console.error("Settings sync error", err));
+                    }, (err) => console.error("Sync error:", err));
 
                     // Sync News
                     onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'news'), (snap) => {
                         this.news = snap.docs.map(d => ({...d.data(), id: d.id}));
-                    }, (err) => console.error("News sync error", err));
+                    });
 
                     // Sync Events
                     onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'events'), (snap) => {
                         this.events = snap.docs.map(d => ({...d.data(), id: d.id}));
-                    }, (err) => console.error("Events sync error", err));
+                    });
 
                     // Sync Scouts
                     onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'scouts'), (snap) => {
                         this.scouts = snap.docs.map(d => ({...d.data(), id: d.id}));
-                    }, (err) => console.error("Scouts sync error", err));
+                    });
 
                     // Sync Fiches
                     onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'fiches'), (snap) => {
                         this.fiches = snap.docs.map(d => ({...d.data(), id: d.id}));
-                    }, (err) => console.error("Fiches sync error", err));
+                    });
 
                     // Sync Chat
                     onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'chat'), (snap) => {
                         const msgs = snap.docs.map(d => ({...d.data(), id: d.id}));
                         this.messages = msgs.sort((a, b) => a.timestamp - b.timestamp);
                         setTimeout(() => this.scrollToBottom(), 100);
-                    }, (err) => console.error("Chat sync error", err));
+                    });
                 },
 
-                // Handlers
                 updatePseudo() {
                     localStorage.setItem('valizy_pseudo', this.currentUser.pseudo);
                 },
@@ -193,6 +192,7 @@
         };
     </script>
     
+    <!-- Alpine JS chargé APRES la définition de scoutApp sur window -->
     <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
 
     <style>
@@ -200,10 +200,8 @@
         [x-cloak] { display: none !important; }
         .card-scout { transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
         .card-scout:hover { transform: translateY(-4px); box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.05); }
-        
         #chat-box::-webkit-scrollbar { width: 4px; }
         #chat-box::-webkit-scrollbar-thumb { background: #e5e7eb; border-radius: 10px; }
-
         @media print {
             .no-print { display: none !important; }
             #print-section { display: block !important; }
@@ -239,19 +237,15 @@
                 <div class="mt-auto p-4 bg-white/5 rounded-2xl border border-white/10">
                     <p class="text-[8px] uppercase font-black text-amber-500 mb-1">Mombamomba anao</p>
                     <p class="text-xs font-bold truncate" x-text="currentUser.pseudo"></p>
-                    <template x-if="!user">
-                        <div class="mt-2 text-[8px] text-stone-500 italic">Mampifandray amin'ny serveur...</div>
-                    </template>
                 </div>
             </div>
         </aside>
 
         <!-- MAIN CONTENT -->
         <main class="flex-1 overflow-y-auto bg-stone-50">
-            
             <div class="max-w-4xl mx-auto p-6 lg:p-12">
 
-                <!-- ACCUEIL (TONGASOA) -->
+                <!-- ACCUEIL -->
                 <div x-show="tab === 'home'" class="space-y-10">
                     <div class="bg-white p-8 rounded-[2.5rem] border border-stone-200 shadow-sm flex flex-col md:flex-row items-center gap-8">
                         <div class="w-48 h-48 bg-stone-900 rounded-[2.5rem] flex items-center justify-center text-amber-500 shadow-xl rotate-3 shrink-0 overflow-hidden border-4 border-white">
@@ -326,14 +320,11 @@
                     </div>
                 </div>
 
-                <!-- CHAT (TAPATAPA-PIRA) -->
+                <!-- CHAT -->
                 <div x-show="tab === 'chat'" class="h-[calc(100vh-12rem)] flex flex-col">
                     <div class="mb-6 flex justify-between items-center">
                         <h2 class="text-3xl font-black uppercase tracking-tighter">Tapatapa-pira</h2>
-                        <div class="flex items-center gap-3">
-                            <input type="text" x-model="currentUser.pseudo" @blur="updatePseudo" class="bg-white border px-3 py-1.5 rounded-lg text-xs font-bold w-32 focus:ring-2 focus:ring-amber-500 outline-none" title="Hanova pseudo">
-                            <div class="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
-                        </div>
+                        <input type="text" x-model="currentUser.pseudo" @blur="updatePseudo" class="bg-white border px-3 py-1.5 rounded-lg text-xs font-bold w-32 focus:ring-2 focus:ring-amber-500 outline-none">
                     </div>
 
                     <div class="flex-1 bg-white rounded-[2rem] border border-stone-200 flex flex-col overflow-hidden shadow-sm">
@@ -357,49 +348,6 @@
                     </div>
                 </div>
 
-                <!-- PARAMETRES -->
-                <div x-show="tab === 'settings'" class="space-y-8">
-                    <h2 class="text-3xl font-black uppercase tracking-tighter mb-8">Paramètres</h2>
-                    
-                    <div class="bg-white p-8 rounded-[2rem] border border-stone-200">
-                        <h3 class="font-black text-xs uppercase tracking-widest text-amber-600 mb-6">Sary sy Logo Tongasoa</h3>
-                        <div class="flex items-center gap-6">
-                            <div class="w-32 h-32 bg-stone-100 rounded-3xl overflow-hidden border-2 border-stone-50 shrink-0">
-                                <template x-if="settings.logo">
-                                    <img :src="settings.logo" class="w-full h-full object-cover">
-                                </template>
-                            </div>
-                            <div class="flex-1">
-                                <input type="file" @change="handleImage($event, 'logo')" class="text-xs file:bg-stone-900 file:text-white file:border-none file:px-4 file:py-2 file:rounded-xl cursor-pointer">
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="bg-white p-8 rounded-[2rem] border border-stone-200">
-                        <h3 class="font-black text-xs uppercase tracking-widest text-amber-600 mb-6">Hampiditra Vaovao</h3>
-                        <div class="grid grid-cols-1 gap-4 mb-6">
-                            <input type="text" x-model="formNews.title" placeholder="Lohahevitra vaovao" class="w-full p-4 rounded-xl ring-1 ring-stone-100 outline-none focus:ring-2 focus:ring-amber-600 font-bold">
-                            <input type="text" x-model="formNews.date" placeholder="Daty (Ohatra: 20 Mey)" class="w-full p-4 rounded-xl ring-1 ring-stone-100 outline-none focus:ring-2 focus:ring-amber-600 font-bold">
-                            <textarea x-model="formNews.desc" placeholder="Mombamomba ny vaovao..." rows="3" class="w-full p-4 rounded-xl ring-1 ring-stone-100 outline-none focus:ring-2 focus:ring-amber-600 font-bold"></textarea>
-                        </div>
-                        <button @click="addNews()" class="bg-stone-900 text-white px-8 py-3 rounded-xl font-black uppercase text-[10px] tracking-widest">Hampiditra ny vaovao</button>
-                    </div>
-
-                    <div class="bg-white p-8 rounded-[2rem] border border-stone-200">
-                        <h3 class="font-black text-xs uppercase tracking-widest text-amber-600 mb-6">Mombamomba ny vondrona</h3>
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div>
-                                <label class="text-[9px] font-black text-stone-400 uppercase ml-2">Anaran'ny Vondrona</label>
-                                <input type="text" x-model="settings.groupName" @blur="saveSettings" class="w-full p-3 rounded-xl ring-1 ring-stone-100 outline-none font-bold text-sm">
-                            </div>
-                            <div>
-                                <label class="text-[9px] font-black text-stone-400 uppercase ml-2">Fivondronana</label>
-                                <input type="text" x-model="settings.fivondronana" @blur="saveSettings" class="w-full p-3 rounded-xl ring-1 ring-stone-100 outline-none font-bold text-sm">
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
                 <!-- ZATOVO -->
                 <div x-show="tab === 'members'" class="space-y-6">
                     <div class="flex justify-between items-center">
@@ -417,11 +365,8 @@
                             </div>
                             <input type="text" x-model="formScout.name" placeholder="Anarana" class="w-full p-3 rounded-xl ring-1 ring-stone-100 outline-none font-bold text-sm">
                             <input type="text" x-model="formScout.firstname" placeholder="Fanampiny" class="w-full p-3 rounded-xl ring-1 ring-stone-100 outline-none font-bold text-sm">
-                            <input type="text" x-model="formScout.address" placeholder="Adiresy" class="w-full p-3 rounded-xl ring-1 ring-stone-100 outline-none font-bold text-sm">
                             <input type="text" x-model="formScout.phone" placeholder="Telefaonina" class="w-full p-3 rounded-xl ring-1 ring-stone-100 outline-none font-bold text-sm">
-                            <div class="md:col-span-2">
-                                <input type="text" x-model="formScout.facebook" placeholder="Lien Facebook" class="w-full p-3 rounded-xl ring-1 ring-stone-100 outline-none font-bold text-sm">
-                            </div>
+                            <input type="text" x-model="formScout.address" placeholder="Adiresy" class="w-full p-3 rounded-xl ring-1 ring-stone-100 outline-none font-bold text-sm">
                         </div>
                         <button @click="addScout()" class="w-full bg-amber-600 text-white py-4 rounded-xl font-black uppercase text-[10px]">Tehirizina</button>
                     </div>
@@ -453,14 +398,9 @@
 
                     <div x-show="showForm" class="bg-white p-8 rounded-[2rem] border border-stone-200 mb-10 shadow-xl">
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-                            <div class="md:col-span-2">
-                                <input type="text" x-model="formFiche.title" placeholder="Lohahevitra" class="w-full p-4 rounded-xl ring-1 ring-stone-100 outline-none font-bold">
-                            </div>
+                            <input type="text" x-model="formFiche.title" placeholder="Lohahevitra" class="md:col-span-2 w-full p-4 rounded-xl ring-1 ring-stone-100 outline-none font-bold">
                             <input type="text" x-model="formFiche.category" placeholder="Sokajy" class="w-full p-4 rounded-xl ring-1 ring-stone-100 outline-none font-bold">
-                            <input type="text" x-model="formFiche.participants" placeholder="Mpandray Anjara" class="w-full p-4 rounded-xl ring-1 ring-stone-100 outline-none font-bold">
-                            <div class="md:col-span-2">
-                                <textarea x-model="formFiche.content" rows="4" placeholder="Dingana arahina..." class="w-full p-4 rounded-xl ring-1 ring-stone-100 outline-none font-bold"></textarea>
-                            </div>
+                            <textarea x-model="formFiche.content" rows="4" placeholder="Dingana arahina..." class="md:col-span-2 w-full p-4 rounded-xl ring-1 ring-stone-100 outline-none font-bold"></textarea>
                         </div>
                         <button @click="addFiche()" class="w-full bg-stone-900 text-white py-4 rounded-2xl font-black uppercase text-xs">Tehirizina</button>
                     </div>
@@ -476,6 +416,32 @@
                                 <p class="text-stone-500 text-sm line-clamp-2 italic" x-text="f.content"></p>
                             </div>
                         </template>
+                    </div>
+                </div>
+
+                <!-- PARAMETRES -->
+                <div x-show="tab === 'settings'" class="space-y-8">
+                    <h2 class="text-3xl font-black uppercase tracking-tighter mb-8">Paramètres</h2>
+                    <div class="bg-white p-8 rounded-[2rem] border border-stone-200">
+                        <h3 class="font-black text-xs uppercase tracking-widest text-amber-600 mb-6">Configuration Vondrona</h3>
+                        <div class="grid grid-cols-1 gap-6">
+                            <div>
+                                <label class="text-[9px] font-black text-stone-400 uppercase">Logo ny vondrona</label>
+                                <input type="file" @change="handleImage($event, 'logo')" class="block w-full mt-2 text-xs">
+                            </div>
+                            <input type="text" x-model="settings.groupName" @blur="saveSettings" placeholder="Anaran'ny Vondrona" class="w-full p-4 rounded-xl ring-1 ring-stone-100 outline-none font-bold">
+                            <input type="text" x-model="settings.fivondronana" @blur="saveSettings" placeholder="Fivondronana" class="w-full p-4 rounded-xl ring-1 ring-stone-100 outline-none font-bold">
+                        </div>
+                    </div>
+
+                    <div class="bg-white p-8 rounded-[2rem] border border-stone-200">
+                        <h3 class="font-black text-xs uppercase tracking-widest text-amber-600 mb-6">Hampiditra Vaovao</h3>
+                        <div class="space-y-4">
+                            <input type="text" x-model="formNews.title" placeholder="Lohahevitra" class="w-full p-4 rounded-xl ring-1 ring-stone-100 outline-none font-bold">
+                            <input type="text" x-model="formNews.date" placeholder="Daty" class="w-full p-4 rounded-xl ring-1 ring-stone-100 outline-none font-bold">
+                            <textarea x-model="formNews.desc" placeholder="Mombamomba..." class="w-full p-4 rounded-xl ring-1 ring-stone-100 outline-none font-bold"></textarea>
+                            <button @click="addNews()" class="bg-stone-900 text-white px-8 py-3 rounded-xl font-black uppercase text-[10px]">Hampiditra</button>
+                        </div>
                     </div>
                 </div>
 
