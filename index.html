@@ -33,17 +33,27 @@
                 user: null,
                 appId: typeof __app_id !== 'undefined' ? __app_id : 'valizy-scout-v2-final',
                 
+                // Filtre pour l'onglet Tahiry
+                archiveFilter: 'all',
+
                 settings: {
                     groupName: "Antilin'i Madagasikara",
                     fivondronana: "Fivondronana faha-17",
                     dina: "Tsy misaraka mandrakizay",
                     logo: null,
-                    news: ""
+                    news: "",
+                    tetiandroTitle: "SEHA-PIBEAZANA ANTILY"
                 },
                 
                 events: [],
                 scouts: [],
                 fiches: [],
+                archives: [],
+                plans: [
+                    { trim: 1, label: 'Trimestre 1', content: '' },
+                    { trim: 2, label: 'Trimestre 2', content: '' },
+                    { trim: 3, label: 'Trimestre 3', content: '' }
+                ],
                 
                 forms: {
                     event: { title: '', date: '', location: '' },
@@ -56,7 +66,8 @@
                         title: '', category: '', content: '',
                         theme: '', goals: '', duration: '',
                         participants: '', note: ''
-                    }
+                    },
+                    archive: { title: '', category: 'Ho an\'ny rehetra', fileData: null, fileName: '' }
                 },
 
                 menuItems: [
@@ -64,12 +75,13 @@
                     { id: 'programme', label: 'Programme', icon: 'calendar' },
                     { id: 'lisitra', label: 'Zatovo', icon: 'users' },
                     { id: 'fanabeazana', label: 'Fanabeazana', icon: 'book-open' },
+                    { id: 'tetiandro', label: 'Tetiandro', icon: 'layout' },
+                    { id: 'tahiry', label: 'Tahiry', icon: 'folder-open' },
                     { id: 'settings', label: 'Paramètre', icon: 'settings' }
                 ],
 
                 async initFirebase() {
                     try {
-                        // Priorité à la config fournie par l'utilisateur, sinon utilise la globale de l'environnement
                         let config;
                         if (__firebase_config_user.apiKey !== "VOTRE_API_KEY") {
                             config = __firebase_config_user;
@@ -123,6 +135,21 @@
                         this.fiches = snap.docs.map(d => ({ id: d.id, ...d.data() }));
                         this.$nextTick(() => lucide.createIcons());
                     }, err => console.error(err));
+
+                    base.collection('archives').onSnapshot(snap => {
+                        this.archives = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                        this.$nextTick(() => lucide.createIcons());
+                    }, err => console.error(err));
+
+                    base.collection('plans').onSnapshot(snap => {
+                        if (!snap.empty) {
+                            const cloudPlans = snap.docs.map(d => d.data());
+                            this.plans = this.plans.map(p => {
+                                const match = cloudPlans.find(cp => cp.trim === p.trim);
+                                return match ? match : p;
+                            });
+                        }
+                    }, err => console.error(err));
                 },
 
                 handleFileUpload(event, target, key) {
@@ -132,6 +159,9 @@
                     reader.onload = (e) => {
                         if (target === 'settings') {
                             this.settings[key] = e.target.result;
+                        } else if (target === 'archive') {
+                            this.forms.archive.fileData = e.target.result;
+                            this.forms.archive.fileName = file.name;
                         } else {
                             this.forms[target][key] = e.target.result;
                         }
@@ -147,9 +177,14 @@
                     await db.collection('artifacts').doc(this.appId).collection('public').doc('data')
                         .collection(collectionName).add({ ...data, createdAt: Date.now() });
                     
-                    Object.keys(this.forms[dataKey]).forEach(k => {
-                        this.forms[dataKey][k] = (k === 'photo') ? null : '';
-                    });
+                    // Reset forms
+                    if(dataKey === 'archive') {
+                        this.forms.archive = { title: '', category: 'Ho an\'ny rehetra', fileData: null, fileName: '' };
+                    } else {
+                        Object.keys(this.forms[dataKey]).forEach(k => {
+                            this.forms[dataKey][k] = (k === 'photo' || k === 'fileData') ? null : '';
+                        });
+                    }
                     this.showAddModal = false;
                 },
 
@@ -166,11 +201,36 @@
                     await db.collection('artifacts').doc(this.appId).collection('public').doc('data')
                         .collection('settings').doc('global').set(this.settings);
                     
+                    this.showNotification("Vita tehirizina ny fanovana!");
+                },
+
+                async savePlan(trim) {
+                    if (!this.user) return;
+                    const db = firebase.firestore();
+                    const plan = this.plans.find(p => p.trim === trim);
+                    await db.collection('artifacts').doc(this.appId).collection('public').doc('data')
+                        .collection('plans').doc(`trim-${trim}`).set(plan);
+                    this.showNotification(`Tehirizina ny Trimestre ${trim}`);
+                },
+
+                downloadFile(data, name) {
+                    const link = document.createElement('a');
+                    link.href = data;
+                    link.download = name || 'document';
+                    link.click();
+                },
+
+                showNotification(text) {
                     const notify = document.createElement('div');
                     notify.className = "fixed bottom-4 right-4 bg-green-600 text-white px-6 py-3 rounded-xl shadow-2xl z-[100] animate-bounce";
-                    notify.innerText = "Vita tehirizina ny fanovana!";
+                    notify.innerText = text;
                     document.body.appendChild(notify);
                     setTimeout(() => notify.remove(), 3000);
+                },
+
+                get filteredArchives() {
+                    if (this.archiveFilter === 'all') return this.archives;
+                    return this.archives.filter(a => a.category === this.archiveFilter);
                 }
             }
         }
@@ -214,7 +274,7 @@
                     </div>
                 </div>
 
-                <nav class="space-y-1 flex-1">
+                <nav class="space-y-1 flex-1 overflow-y-auto pr-2">
                     <template x-for="item in menuItems" :key="item.id">
                         <button @click="activeTab = item.id; isMenuOpen = false; showAddModal = false" 
                                 :class="activeTab === item.id ? 'bg-amber-600 text-white shadow-lg scale-105' : 'hover:bg-white/5 text-stone-400'"
@@ -270,7 +330,6 @@
                             </div>
                             <p class="text-stone-400 font-serif italic text-xl lg:text-2xl mb-8" x-text="'&quot;' + settings.dina + '&quot;'"></p>
                             
-                            <!-- Section Actualités sur l'accueil -->
                             <div x-show="settings.news" class="bg-amber-50 border-l-4 border-amber-500 p-6 rounded-r-2xl max-w-xl text-left">
                                 <h4 class="text-[10px] font-black text-amber-700 uppercase tracking-widest mb-2">Hetsika farany & Vaovao</h4>
                                 <p class="text-stone-700 text-sm whitespace-pre-line" x-text="settings.news"></p>
@@ -317,7 +376,7 @@
                     </div>
                 </div>
 
-                <!-- 3. ZATOVO (LISTE) -->
+                <!-- 3. ZATOVO -->
                 <div x-show="activeTab === 'lisitra'" class="space-y-8">
                     <div class="flex justify-between items-end border-b-4 border-stone-900 pb-4">
                         <h2 class="text-5xl font-black text-stone-900 uppercase tracking-tighter">Zatovo</h2>
@@ -437,7 +496,108 @@
                     </div>
                 </div>
 
-                <!-- 5. SETTINGS -->
+                <!-- 6. TETIANDRO (NEW) -->
+                <div x-show="activeTab === 'tetiandro'" class="space-y-8">
+                    <div class="text-center py-10 bg-stone-900 rounded-[3rem] shadow-2xl relative overflow-hidden">
+                        <div class="absolute inset-0 opacity-10 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')]"></div>
+                        <input type="text" x-model="settings.tetiandroTitle" @change="saveSettings()" 
+                               class="relative z-10 bg-transparent text-center text-4xl lg:text-6xl font-black text-amber-500 uppercase tracking-tighter w-full outline-none focus:ring-2 ring-amber-500/20 rounded-xl">
+                        <p class="relative z-10 text-[10px] text-stone-400 font-bold uppercase tracking-[0.3em] mt-2">Fandaharam-potoana sy Tombana</p>
+                    </div>
+
+                    <div class="grid grid-cols-1 gap-8">
+                        <template x-for="plan in plans" :key="plan.trim">
+                            <div class="bg-white p-8 rounded-[2.5rem] shadow-sm border-2 border-stone-100 flex flex-col md:flex-row gap-8">
+                                <div class="md:w-48 flex-shrink-0">
+                                    <div class="bg-amber-600 text-white p-6 rounded-3xl text-center shadow-lg rotate-[-2deg]">
+                                        <h3 class="font-black text-2xl uppercase" x-text="'T' + plan.trim"></h3>
+                                        <p class="text-[10px] font-bold opacity-80 uppercase tracking-widest">Trimestrielle</p>
+                                    </div>
+                                </div>
+                                <div class="flex-1 space-y-4">
+                                    <label class="text-[10px] font-black text-stone-400 uppercase tracking-widest">Tombana sy Fandaharan'asa</label>
+                                    <textarea x-model="plan.content" rows="4" 
+                                              class="w-full p-5 bg-stone-50 border-2 border-stone-100 rounded-3xl outline-none focus:border-amber-500 text-sm leading-relaxed"
+                                              placeholder="Inona no vita? Inona no mbola hatao?"></textarea>
+                                    <div class="flex justify-end">
+                                        <button @click="savePlan(plan.trim)" class="bg-stone-900 text-white px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider hover:bg-amber-600 transition-all">Tehirizina</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+
+                <!-- 7. TAHIRY (NEW) -->
+                <div x-show="activeTab === 'tahiry'" class="space-y-8">
+                    <div class="flex flex-col md:flex-row justify-between items-center gap-6 border-b-4 border-stone-900 pb-6">
+                        <h2 class="text-5xl font-black text-stone-900 uppercase tracking-tighter">Tahiry</h2>
+                        
+                        <div class="flex items-center gap-3 bg-stone-100 p-2 rounded-2xl overflow-x-auto max-w-full">
+                            <button @click="archiveFilter = 'all'" :class="archiveFilter === 'all' ? 'bg-stone-900 text-white' : 'text-stone-500'" class="px-4 py-2 rounded-xl text-[10px] font-black uppercase whitespace-nowrap transition-all">Rehetra</button>
+                            <button @click="archiveFilter = 'Louvteaux'" :class="archiveFilter === 'Louvteaux' ? 'bg-amber-600 text-white' : 'text-stone-500'" class="px-4 py-2 rounded-xl text-[10px] font-black uppercase whitespace-nowrap transition-all">Louvteaux</button>
+                            <button @click="archiveFilter = 'Mpianjoria'" :class="archiveFilter === 'Mpianjoria' ? 'bg-amber-600 text-white' : 'text-stone-500'" class="px-4 py-2 rounded-xl text-[10px] font-black uppercase whitespace-nowrap transition-all">Mpianjoria</button>
+                            <button @click="archiveFilter = 'Mpamakilay'" :class="archiveFilter === 'Mpamakilay' ? 'bg-amber-600 text-white' : 'text-stone-500'" class="px-4 py-2 rounded-xl text-[10px] font-black uppercase whitespace-nowrap transition-all">Mpamakilay</button>
+                            <button @click="archiveFilter = 'Mpiandalana'" :class="archiveFilter === 'Mpiandalana' ? 'bg-amber-600 text-white' : 'text-stone-500'" class="px-4 py-2 rounded-xl text-[10px] font-black uppercase whitespace-nowrap transition-all">Mpiandalana</button>
+                            <button @click="archiveFilter = 'Ho an\'ny rehetra'" :class="archiveFilter === 'Ho an\'ny rehetra' ? 'bg-amber-600 text-white' : 'text-stone-500'" class="px-4 py-2 rounded-xl text-[10px] font-black uppercase whitespace-nowrap transition-all">Rehetra (Antily)</button>
+                        </div>
+
+                        <button @click="showAddModal = !showAddModal" class="bg-stone-900 text-white px-6 py-3 rounded-2xl shadow-xl font-black text-xs uppercase tracking-widest flex items-center gap-2 flex-shrink-0">
+                            <i :data-lucide="showAddModal ? 'x' : 'upload-cloud'" class="w-4 h-4"></i>
+                            <span x-text="showAddModal ? 'Hikatona' : 'Hampiditra'"></span>
+                        </button>
+                    </div>
+
+                    <div x-show="showAddModal" class="bg-white p-8 rounded-[2rem] border-2 border-stone-100 shadow-xl space-y-6" x-transition>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <input type="text" placeholder="Lohatenin'ny Tahiry" x-model="forms.archive.title" class="w-full p-4 bg-stone-50 border-2 border-stone-100 rounded-2xl outline-none focus:border-amber-500 font-bold">
+                            <select x-model="forms.archive.category" class="w-full p-4 bg-stone-50 border-2 border-stone-100 rounded-2xl outline-none focus:border-amber-500">
+                                <option value="Louvteaux">Louvteaux</option>
+                                <option value="Mpianjoria">Mpianjoria</option>
+                                <option value="Mpamakilay">Mpamakilay</option>
+                                <option value="Mpiandalana">Mpiandalana</option>
+                                <option value="Ho an'ny rehetra">Ho an'ny rehetra</option>
+                            </select>
+                            <div class="md:col-span-2">
+                                <label class="flex flex-col items-center justify-center w-full h-32 bg-stone-50 border-2 border-dashed border-stone-200 rounded-2xl cursor-pointer hover:bg-stone-100 transition-all">
+                                    <div class="flex flex-col items-center justify-center pt-5 pb-6">
+                                        <i data-lucide="file" class="w-8 h-8 text-stone-300 mb-2"></i>
+                                        <p class="text-xs text-stone-500 font-bold uppercase tracking-wider" x-text="forms.archive.fileName || 'Safidio ny document (PDF, Image)'"></p>
+                                    </div>
+                                    <input type="file" class="hidden" @change="handleFileUpload($event, 'archive')">
+                                </label>
+                            </div>
+                        </div>
+                        <button @click="saveItem('archives', 'archive')" class="w-full bg-stone-900 text-white py-5 rounded-2xl font-black uppercase text-sm shadow-lg">Tehirizina ao amin'ny Tahiry</button>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        <template x-for="item in filteredArchives" :key="item.id">
+                            <div class="bg-white p-6 rounded-[2rem] border border-stone-100 shadow-sm flex flex-col group hover:shadow-md transition-all">
+                                <div class="flex justify-between items-start mb-4">
+                                    <div class="w-12 h-12 bg-amber-100 rounded-xl flex items-center justify-center text-amber-600">
+                                        <i data-lucide="file-text" class="w-6 h-6"></i>
+                                    </div>
+                                    <button @click="deleteItem('archives', item.id)" class="text-stone-200 hover:text-red-500 p-1"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+                                </div>
+                                <h4 class="font-black text-lg text-stone-800 uppercase leading-tight mb-2 flex-1" x-text="item.title"></h4>
+                                <div class="flex justify-between items-center mt-4">
+                                    <span class="text-[9px] font-black text-stone-400 uppercase tracking-widest" x-text="item.category"></span>
+                                    <button @click="downloadFile(item.fileData, item.fileName)" class="bg-stone-900 text-white p-2 rounded-lg hover:bg-amber-600 transition-colors">
+                                        <i data-lucide="download" class="w-4 h-4"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+
+                    <div x-show="filteredArchives.length === 0" class="text-center py-20 text-stone-300">
+                        <i data-lucide="inbox" class="w-16 h-16 mx-auto mb-4 opacity-20"></i>
+                        <p class="font-bold uppercase text-xs tracking-widest">Tsy misy tahiry ato amin'ity sokajy ity</p>
+                    </div>
+                </div>
+
+                <!-- 8. SETTINGS -->
                 <div x-show="activeTab === 'settings'" class="space-y-8 pb-20">
                     <div class="flex justify-between items-end border-b-4 border-stone-900 pb-4">
                         <h2 class="text-5xl font-black text-stone-900 uppercase tracking-tighter">Paramètre</h2>
@@ -482,9 +642,8 @@
                             </div>
                         </div>
 
-                        <!-- Section News/Dates à retenir -->
                         <div class="space-y-4 pt-6 border-t border-stone-100">
-                            <label class="text-[11px] font-black text-stone-400 uppercase tracking-widest ml-2">Vaovao farany na Daty tokony ho tadidina (Hita eo amin'ny Tongasoa)</label>
+                            <label class="text-[11px] font-black text-stone-400 uppercase tracking-widest ml-2">Vaovao farany na Daty tokony ho tadidina</label>
                             <textarea x-model="settings.news" rows="5" class="w-full p-5 border-2 border-stone-100 rounded-3xl outline-none focus:border-amber-500 bg-stone-50" placeholder="Ohatra: 15 Mey: Fivorian'ny mpiandraikitra..."></textarea>
                         </div>
 
