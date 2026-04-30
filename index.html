@@ -37,6 +37,7 @@
                 
                 // Filtres de sections
                 sectionFilter: 'all',
+                archiveFilter: 'all', // Sivana ho an'ny Tahiry
                 sections: ['Louvteaux', 'Mpianjoria', 'Mpamakilay', 'Mpiandalana'],
 
                 // --- CHAT STATE (TAFASIRY) ---
@@ -213,6 +214,23 @@
                     });
                 },
 
+                handleFileUpload(event, type, field) {
+                    const file = event.target.files[0];
+                    if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        if (type === 'forms') {
+                            this.forms[field].photo = e.target.result;
+                        } else if (type === 'settings') {
+                            this.settings[field] = e.target.result;
+                        } else if (type === 'archive') {
+                            this.forms.archive.fileData = e.target.result;
+                            this.forms.archive.fileName = file.name;
+                        }
+                    };
+                    reader.readAsDataURL(file);
+                },
+
                 async saveItem(col, key) {
                     if (!this.user) return;
                     const db = firebase.firestore();
@@ -226,6 +244,7 @@
                     if(key === 'scout') this.forms.scout = { name: '', fname: '', phone: '', birth: '', address: '', facebook: '', note: '', photo: null, section: 'Louvteaux' };
                     if(key === 'fiche') this.forms.fiche = { title: '', category: '', content: '', theme: '', goals: '', duration: '', participants: '', note: '', section: 'Louvteaux' };
                     if(key === 'event') this.forms.event = { title: '', date: '', location: '', description: '', section: 'Louvteaux' };
+                    if(key === 'archive') this.forms.archive = { title: '', category: 'Ho an\'ny rehetra', fileData: null, fileName: '' };
                 },
 
                 async deleteItem(col, id) {
@@ -245,6 +264,13 @@
                     setTimeout(() => n.remove(), 3000);
                 },
 
+                downloadFile(data, name) {
+                    const link = document.createElement('a');
+                    link.href = data;
+                    link.download = name;
+                    link.click();
+                },
+
                 // Logic de filtre
                 get filteredScouts() {
                     return this.sectionFilter === 'all' ? this.scouts : this.scouts.filter(s => s.section === this.sectionFilter);
@@ -254,6 +280,9 @@
                 },
                 get filteredEvents() {
                     return this.sectionFilter === 'all' ? this.events : this.events.filter(e => e.section === this.sectionFilter);
+                },
+                get filteredArchives() {
+                    return this.archiveFilter === 'all' ? this.archives : this.archives.filter(a => a.category === this.archiveFilter);
                 }
             }
         }
@@ -300,7 +329,7 @@
                 
                 <nav class="space-y-1">
                     <template x-for="item in menuItems" :key="item.id">
-                        <button @click="activeTab = item.id; isMenuOpen = false; if(item.id === 'chat') scrollChat(); sectionFilter = 'all';" 
+                        <button @click="activeTab = item.id; isMenuOpen = false; if(item.id === 'chat') scrollChat(); sectionFilter = 'all'; archiveFilter = 'all';" 
                                 :class="activeTab === item.id ? 'bg-amber-600 text-white shadow-lg shadow-amber-900/40' : 'text-stone-500 hover:bg-white/5 hover:text-stone-300'"
                                 class="w-full flex items-center gap-4 px-5 py-4 rounded-2xl transition-all duration-300 font-bold uppercase text-[10px] tracking-wider text-left group">
                             <i :data-lucide="item.icon" class="w-4 h-4 transition-transform group-hover:scale-110"></i>
@@ -633,19 +662,72 @@
                     </div>
                 </div>
 
+                <!-- TAHIRY AVEC FILTRE -->
                 <div x-show="activeTab === 'tahiry'">
                     <div class="flex flex-col md:flex-row justify-between md:items-end border-b-4 border-stone-900 pb-6 mb-8 gap-6">
-                        <h2 class="text-6xl font-black text-stone-900 uppercase tracking-tighter">Tahiry</h2>
-                        <button @click="showAddModal = !showAddModal" class="bg-stone-900 text-white px-8 py-4 rounded-2xl font-black text-xs uppercase tracking-widest">Hampiditra rakitra</button>
+                        <div>
+                            <p class="text-[10px] font-black uppercase tracking-[0.3em] text-amber-600 mb-2">Rakitra voatahiry</p>
+                            <h2 class="text-6xl font-black text-stone-900 uppercase tracking-tighter">Tahiry</h2>
+                        </div>
+                        <div class="flex items-center gap-3">
+                            <!-- SIVANA TAHIRY (Filtre Tahiry) -->
+                            <select x-model="archiveFilter" class="bg-white border-2 border-stone-100 px-6 py-3 rounded-2xl text-xs font-black uppercase outline-none focus:border-amber-600 transition-colors cursor-pointer">
+                                <option value="all">REHETRA</option>
+                                <option value="Ho an'ny rehetra">HO AN'NY REHETRA</option>
+                                <template x-for="sec in sections" :key="sec"><option :value="sec" x-text="sec.toUpperCase()"></option></template>
+                            </select>
+                            <button @click="showAddModal = !showAddModal" class="bg-stone-900 text-white px-8 py-4 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-amber-600 transition-colors">
+                                <span x-text="showAddModal ? 'Hikatona' : 'Hampiditra rakitra'"></span>
+                            </button>
+                        </div>
                     </div>
+
+                    <!-- Modal d'ajout Archive -->
+                    <div x-show="showAddModal" class="bg-stone-100 p-8 rounded-[2.5rem] border-2 border-stone-100 shadow-xl mb-12 animate-in slide-in-from-top-4 duration-500">
+                        <div class="grid md:grid-cols-2 gap-6">
+                            <div class="space-y-4">
+                                <label class="text-[10px] font-black uppercase text-stone-400">Anaran'ny rakitra</label>
+                                <input type="text" x-model="forms.archive.title" placeholder="Anaran'ny rakitra" class="w-full p-4 bg-white border-2 border-stone-100 rounded-2xl outline-none focus:border-amber-600">
+                                <label class="text-[10px] font-black uppercase text-stone-400">Cible / Section</label>
+                                <select x-model="forms.archive.category" class="w-full p-4 bg-white border-2 border-stone-100 rounded-2xl outline-none focus:border-amber-600">
+                                    <option value="Ho an'ny rehetra">Ho an'ny rehetra</option>
+                                    <template x-for="sec in sections" :key="sec"><option :value="sec" x-text="sec"></option></template>
+                                </select>
+                            </div>
+                            <div class="space-y-4">
+                                <label class="text-[10px] font-black uppercase text-stone-400">Fidio ny rakitra</label>
+                                <div class="relative w-full h-32 bg-white border-2 border-dashed border-stone-200 rounded-[2rem] flex flex-col items-center justify-center group hover:border-amber-600 transition-all cursor-pointer">
+                                    <template x-if="!forms.archive.fileData">
+                                        <div class="text-center">
+                                            <i data-lucide="upload-cloud" class="w-8 h-8 text-stone-300 mx-auto mb-2"></i>
+                                            <span class="text-[10px] font-black text-stone-400 uppercase">Kitiho hisafidy rakitra</span>
+                                        </div>
+                                    </template>
+                                    <template x-if="forms.archive.fileData">
+                                        <div class="text-center px-4">
+                                            <i data-lucide="check-circle" class="w-8 h-8 text-green-500 mx-auto mb-2"></i>
+                                            <span class="text-[10px] font-black text-stone-900 uppercase truncate block max-w-full" x-text="forms.archive.fileName"></span>
+                                        </div>
+                                    </template>
+                                    <input type="file" @change="handleFileUpload($event, 'archive')" class="absolute inset-0 opacity-0 cursor-pointer">
+                                </div>
+                            </div>
+                        </div>
+                        <button @click="saveItem('archives', 'archive')" class="w-full mt-8 bg-stone-900 text-white py-5 rounded-2xl font-black uppercase tracking-widest hover:bg-amber-600 shadow-xl transition-all">Hitahiry ny rakitra</button>
+                    </div>
+
                     <div class="grid grid-cols-2 md:grid-cols-4 gap-6">
-                        <template x-for="a in archives" :key="a.id">
-                            <div class="bg-white p-8 rounded-[2.5rem] border border-stone-100 text-center flex flex-col items-center group hover:border-amber-500 transition-all">
+                        <template x-for="a in filteredArchives" :key="a.id">
+                            <div class="bg-white p-8 rounded-[2.5rem] border border-stone-100 text-center flex flex-col items-center group hover:border-amber-500 hover:shadow-xl transition-all duration-300">
                                 <div class="w-16 h-16 bg-stone-50 rounded-2xl flex items-center justify-center mb-4 group-hover:bg-amber-50 transition-colors">
                                     <i data-lucide="file-text" class="w-8 h-8 text-amber-600"></i>
                                 </div>
-                                <h4 class="font-black uppercase text-[10px] text-stone-600 mb-4 line-clamp-1" x-text="a.title"></h4>
-                                <button @click="downloadFile(a.fileData, a.fileName)" class="bg-stone-100 hover:bg-stone-900 hover:text-white px-4 py-2 rounded-xl text-[8px] font-black transition-all">DOWNLOAD</button>
+                                <h4 class="font-black uppercase text-[10px] text-stone-600 mb-2 line-clamp-1 w-full" x-text="a.title"></h4>
+                                <span class="text-[8px] font-black text-amber-600 uppercase bg-amber-50 px-2 py-0.5 rounded mb-4" x-text="a.category"></span>
+                                <div class="flex gap-2 w-full mt-auto">
+                                    <button @click="downloadFile(a.fileData, a.fileName)" class="flex-1 bg-stone-100 hover:bg-stone-900 hover:text-white px-4 py-2 rounded-xl text-[8px] font-black transition-all">DOWNLOAD</button>
+                                    <button @click="deleteItem('archives', a.id)" class="p-2 text-stone-200 hover:text-red-500"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+                                </div>
                             </div>
                         </template>
                     </div>
@@ -696,7 +778,8 @@
 
     <script>
         window.onload = () => {
-            console.log("Valizy Scoutisme v3.0 - Système Intégral avec Tafasiry et Filtres.");
+            lucide.createIcons();
+            console.log("Valizy Scoutisme v3.1 - Filtres Tahiry ajoutés.");
         };
     </script>
 </body>
