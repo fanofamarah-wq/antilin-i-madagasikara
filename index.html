@@ -3,26 +3,24 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>VALIZY - Connexion Forcée</title>
+    <title>VALIZY - Fikambanana Skoto</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800;900&display=swap" rel="stylesheet">
 
-    <!-- Firebase SDK v10 (Modular) -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
-        import { getFirestore, doc, setDoc, addDoc, collection, onSnapshot, query, orderBy } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+        import { getFirestore, doc, setDoc, addDoc, collection, onSnapshot, query, orderBy, deleteDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
         window.scoutApp = function() {
             return {
                 tab: 'home',
                 isConfigured: false,
-                authStatus: 'Mampifandray...',
                 db: null,
                 auth: null,
                 user: null,
-                appId: typeof __app_id !== 'undefined' ? __app_id : 'valizy-default',
+                appId: typeof __app_id !== 'undefined' ? __app_id : 'valizy-scout-vertical-v2',
                 
                 settings: {
                     groupName: "Antilin'i Madagasikara",
@@ -33,194 +31,297 @@
                 },
 
                 scouts: [],
-                messages: [],
-                chatInput: '',
-                currentUser: {
-                    pseudo: localStorage.getItem('valizy_pseudo') || 'Mpanazava_' + Math.floor(Math.random() * 1000)
-                },
+                events: [],
+                fiches: [],
+                
+                showAddScout: false,
+                newScout: { name: '', fname: '', phone: '' },
+                showAddEvent: false,
+                newEvent: { title: '', date: '', location: '', type: 'Sampana' },
+                showAddFiche: false,
+                newFiche: { title: '', seha: 'Teknika', duration: '', vht: '' },
 
                 async init() {
                     const configStr = typeof __firebase_config !== 'undefined' ? __firebase_config : null;
                     if (!configStr) {
-                        this.authStatus = "Config tsy hita";
+                        console.log("Configuration Firebase absente - Mode démo locale");
                         return;
                     }
 
-                    const app = initializeApp(JSON.parse(configStr));
-                    this.auth = getAuth(app);
-                    this.db = getFirestore(app);
-
-                    // Login
                     try {
+                        const app = initializeApp(JSON.parse(configStr));
+                        this.auth = getAuth(app);
+                        this.db = getFirestore(app);
+
+                        // Priorité au token personnalisé si présent
                         if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
                             await signInWithCustomToken(this.auth, __initial_auth_token);
                         } else {
                             await signInAnonymously(this.auth);
                         }
-                    } catch (e) {
-                        console.error("Auth Error", e);
-                        this.authStatus = "Fahadisoana fidirana";
-                    }
 
-                    onAuthStateChanged(this.auth, (user) => {
-                        if (user) {
-                            this.user = user;
-                            this.isConfigured = true;
-                            this.authStatus = "Mandeha tsara";
-                            this.syncData();
-                        }
-                    });
+                        onAuthStateChanged(this.auth, (user) => {
+                            if (user) {
+                                this.user = user;
+                                this.isConfigured = true;
+                                this.syncData();
+                            }
+                        });
+                    } catch (error) {
+                        console.error("Erreur Firebase:", error);
+                    }
                 },
 
                 syncData() {
-                    if (!this.user) return;
+                    if (!this.user || !this.db) return;
 
-                    // Sync Settings
-                    onSnapshot(doc(this.db, 'artifacts', this.appId, 'public', 'data', 'settings', 'global'), (d) => {
-                        if (d.exists()) this.settings = { ...this.settings, ...d.data() };
-                    });
+                    // Synchronisation des Scouts
+                    onSnapshot(collection(this.db, 'artifacts', this.appId, 'public', 'data', 'scouts'), 
+                        (snap) => {
+                            this.scouts = snap.docs.map(d => ({id: d.id, ...d.data()}));
+                        },
+                        (err) => console.error("Erreur sync scouts:", err)
+                    );
 
-                    // Sync Scouts
-                    onSnapshot(collection(this.db, 'artifacts', this.appId, 'public', 'data', 'scouts'), (snap) => {
-                        this.scouts = snap.docs.map(d => ({id: d.id, ...d.data()}));
-                    });
+                    // Synchronisation des Evénements
+                    onSnapshot(collection(this.db, 'artifacts', this.appId, 'public', 'data', 'events'), 
+                        (snap) => {
+                            this.events = snap.docs.map(d => ({id: d.id, ...d.data()}));
+                        },
+                        (err) => console.error("Erreur sync events:", err)
+                    );
 
-                    // Sync Chat
-                    onSnapshot(collection(this.db, 'artifacts', this.appId, 'public', 'data', 'chat'), (snap) => {
-                        this.messages = snap.docs.map(d => d.data()).sort((a,b) => a.timestamp - b.timestamp);
-                        this.$nextTick(() => {
-                            const el = document.getElementById('chat-box');
-                            if(el) el.scrollTop = el.scrollHeight;
-                        });
-                    });
-                },
-
-                async saveSettings() {
-                    if (!this.user) return;
-                    await setDoc(doc(this.db, 'artifacts', this.appId, 'public', 'data', 'settings', 'global'), this.settings, { merge: true });
+                    // Synchronisation des Fiches
+                    onSnapshot(collection(this.db, 'artifacts', this.appId, 'public', 'data', 'fiches'), 
+                        (snap) => {
+                            this.fiches = snap.docs.map(d => ({id: d.id, ...d.data()}));
+                        },
+                        (err) => console.error("Erreur sync fiches:", err)
+                    );
                 },
 
                 async addScout() {
-                    if (!this.user) return;
-                    const name = prompt("Anaran'ny mpikambana:");
-                    if (name) {
-                        await addDoc(collection(this.db, 'artifacts', this.appId, 'public', 'data', 'scouts'), {
-                            name: name,
-                            timestamp: Date.now()
-                        });
-                    }
+                    if (!this.newScout.name || !this.user) return;
+                    await addDoc(collection(this.db, 'artifacts', this.appId, 'public', 'data', 'scouts'), { ...this.newScout, timestamp: Date.now() });
+                    this.newScout = { name: '', fname: '', phone: '' };
+                    this.showAddScout = false;
                 },
 
-                async sendMessage() {
-                    if (!this.user || !this.chatInput.trim()) return;
-                    await addDoc(collection(this.db, 'artifacts', this.appId, 'public', 'data', 'chat'), {
-                        text: this.chatInput,
-                        user: this.currentUser.pseudo,
-                        uid: this.user.uid,
-                        timestamp: Date.now()
-                    });
-                    this.chatInput = '';
+                async addEvent() {
+                    if (!this.newEvent.title || !this.user) return;
+                    await addDoc(collection(this.db, 'artifacts', this.appId, 'public', 'data', 'events'), { ...this.newEvent, timestamp: Date.now() });
+                    this.newEvent = { title: '', date: '', location: '', type: 'Sampana' };
+                    this.showAddEvent = false;
+                },
+
+                async addFiche() {
+                    if (!this.newFiche.title || !this.user) return;
+                    await addDoc(collection(this.db, 'artifacts', this.appId, 'public', 'data', 'fiches'), { ...this.newFiche, timestamp: Date.now() });
+                    this.newFiche = { title: '', seha: 'Teknika', duration: '', vht: '' };
+                    this.showAddFiche = false;
+                },
+
+                async deleteItem(col, id) {
+                    if (!this.user) return;
+                    await deleteDoc(doc(this.db, 'artifacts', this.appId, 'public', 'data', col, id));
                 }
             }
         }
     </script>
 
     <style>
-        body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #fcfcfc; }
+        body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #fdfaf7; color: #4a3728; margin: 0; padding: 0; }
         [x-cloak] { display: none !important; }
-        .tab-active { @apply bg-amber-600 text-white shadow-lg shadow-amber-900/20; }
+        
+        .sidebar { background-color: #1a120f; } 
+        .tab-btn { 
+            @apply w-full text-left px-8 py-6 rounded-[2rem] text-[15px] font-extrabold uppercase tracking-widest transition-all flex items-center gap-5 border-2 border-transparent;
+            color: #78716c;
+        }
+        .tab-btn:hover { @apply bg-white/5 text-white; }
+        .tab-active { @apply bg-[#d97706] text-white shadow-2xl shadow-amber-900/50 border-amber-400/20 scale-[1.03]; }
+        .tab-icon { @apply text-2xl; }
+
+        .card { @apply bg-white border border-stone-100 rounded-[2rem] shadow-sm overflow-hidden transition-all duration-300; }
+        .card:hover { @apply shadow-md border-stone-200; }
+
+        .input-white { @apply w-full p-5 bg-white rounded-2xl border border-stone-200 outline-none font-bold transition-all text-sm mb-3 shadow-inner focus:ring-2 focus:ring-[#d97706]; }
+        .btn-marron { @apply bg-[#2d1b15] text-white px-10 py-5 rounded-2xl font-black text-[11px] uppercase tracking-widest hover:bg-[#d97706] transition-all shadow-lg active:scale-95; }
+        .marron-text { color: #2d1b15; }
+
+        @media (max-width: 1024px) {
+            .flex-container { flex-direction: column; }
+            .sidebar { width: 100%; height: auto; padding: 1.5rem; position: sticky; top: 0; z-index: 50; }
+            .sidebar nav { display: flex; overflow-x: auto; gap: 0.75rem; width: 100%; margin-top: 1rem; }
+            .tab-btn { padding: 1rem 1.5rem; white-space: nowrap; width: auto; font-size: 12px; flex-shrink: 0; border-radius: 1rem; }
+            .sidebar-logo { display: none; }
+            main { padding: 1.5rem; }
+        }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
 </head>
-<body x-data="scoutApp()" x-init="init()" x-cloak class="text-stone-900">
+<body x-data="scoutApp()" x-init="init()" x-cloak>
 
-    <div class="flex h-screen overflow-hidden">
-        <!-- BARRE LATERALE -->
-        <aside class="w-64 bg-[#141414] text-white flex-shrink-0 hidden lg:flex flex-col border-r border-white/5 p-8">
-            <div class="flex items-center gap-3 mb-12">
-                <div class="w-10 h-10 bg-amber-600 rounded-xl flex items-center justify-center font-black rotate-3">V</div>
-                <h2 class="font-black text-xl uppercase tracking-tighter">Valizy</h2>
+    <div class="flex h-screen overflow-hidden flex-container">
+        
+        <aside class="sidebar w-80 flex-shrink-0 flex flex-col p-8 lg:h-full">
+            <div class="sidebar-logo flex items-center gap-4 mb-12 px-2">
+                <div class="w-16 h-16 bg-[#d97706] rounded-[1.8rem] flex items-center justify-center font-black text-3xl rotate-3 shadow-xl text-white">V</div>
+                <div class="text-white">
+                    <h2 class="font-black text-2xl uppercase tracking-tighter leading-none">Valizy</h2>
+                    <p class="text-[10px] text-[#d97706] font-black uppercase tracking-[0.2em] mt-1">Scoutisme</p>
+                </div>
             </div>
 
-            <nav class="space-y-2 flex-1">
-                <button @click="tab = 'home'" :class="tab === 'home' ? 'tab-active' : 'text-stone-400'" class="w-full text-left px-5 py-3.5 rounded-2xl text-[11px] font-black uppercase tracking-widest transition-all">🏠 Tongasoa</button>
-                <button @click="tab = 'members'" :class="tab === 'members' ? 'tab-active' : 'text-stone-400'" class="w-full text-left px-5 py-3.5 rounded-2xl text-[11px] font-black uppercase tracking-widest transition-all">👥 Zatovo</button>
-                <button @click="tab = 'chat'" :class="tab === 'chat' ? 'tab-active' : 'text-stone-400'" class="w-full text-left px-5 py-3.5 rounded-2xl text-[11px] font-black uppercase tracking-widest transition-all">💬 Dinika</button>
-                <button @click="tab = 'settings'" :class="tab === 'settings' ? 'tab-active' : 'text-stone-400'" class="w-full text-left px-5 py-3.5 rounded-2xl text-[11px] font-black uppercase tracking-widest transition-all">⚙️ Paramètre</button>
+            <nav class="space-y-4 flex-1">
+                <button @click="tab = 'home'" :class="tab === 'home' ? 'tab-active' : ''" class="tab-btn">
+                    <span class="tab-icon">🏠</span> <span>Tongasoa</span>
+                </button>
+                <button @click="tab = 'members'" :class="tab === 'members' ? 'tab-active' : ''" class="tab-btn">
+                    <span class="tab-icon">👥</span> <span>Zatovo</span>
+                </button>
+                <button @click="tab = 'events'" :class="tab === 'events' ? 'tab-active' : ''" class="tab-btn">
+                    <span class="tab-icon">📅</span> <span>Programma</span>
+                </button>
+                <button @click="tab = 'edu'" :class="tab === 'edu' ? 'tab-active' : ''" class="tab-btn">
+                    <span class="tab-icon">📖</span> <span>Taranja</span>
+                </button>
+                <button @click="tab = 'settings'" :class="tab === 'settings' ? 'tab-active' : ''" class="tab-btn">
+                    <span class="tab-icon">⚙️</span> <span>Fikirakirana</span>
+                </button>
             </nav>
 
-            <div class="mt-auto p-4 bg-white/5 rounded-2xl border border-white/10">
-                <div class="flex items-center gap-2 mb-2">
-                    <div :class="isConfigured ? 'bg-green-500' : 'bg-red-500'" class="w-2 h-2 rounded-full"></div>
-                    <span class="text-[9px] font-black uppercase tracking-widest" x-text="authStatus"></span>
-                </div>
-                <input type="text" x-model="currentUser.pseudo" class="bg-transparent text-xs font-bold w-full outline-none border-b border-white/10 pb-1">
+            <div class="mt-auto pt-8 border-t border-white/10 hidden lg:block px-2">
+                <p class="text-[10px] font-black text-[#d97706] uppercase tracking-widest mb-1" x-text="settings.sampana"></p>
+                <p class="text-[11px] font-bold text-stone-500">Mivonona hatrany!</p>
             </div>
         </aside>
 
-        <!-- CONTENU -->
-        <main class="flex-1 overflow-y-auto p-6 lg:p-12">
+        <main class="flex-1 overflow-y-auto p-8 lg:p-16">
             
-            <!-- HOME -->
-            <div x-show="tab === 'home'" class="max-w-4xl mx-auto space-y-10">
-                <div class="bg-white p-10 rounded-[3rem] border border-stone-200 shadow-sm flex items-center gap-10">
-                    <div class="w-32 h-32 bg-stone-900 rounded-[2rem] flex items-center justify-center text-amber-500 text-5xl font-black">V</div>
+            <!-- ACCUEIL -->
+            <div x-show="tab === 'home'" class="max-w-3xl mx-auto space-y-12 animate-in fade-in duration-500">
+                <div class="flex flex-col items-center text-center gap-8 pt-4">
+                    <div class="w-64 h-64 bg-[#2d1b15] rounded-[5rem] flex items-center justify-center text-[#d97706] text-9xl font-black rotate-6 shadow-2xl border-8 border-white">V</div>
                     <div>
-                        <h1 class="text-5xl font-black text-stone-900 uppercase tracking-tighter" x-text="settings.groupName"></h1>
-                        <p class="text-stone-400 font-bold uppercase tracking-widest text-sm" x-text="settings.fivondronana"></p>
+                        <h1 class="text-5xl lg:text-8xl font-black marron-text uppercase tracking-tighter leading-none mb-4" x-text="settings.groupName"></h1>
+                        <p class="text-lg font-bold text-[#d97706] uppercase tracking-[0.3em]" x-text="settings.fivondronana"></p>
                     </div>
                 </div>
-                <div class="bg-stone-900 p-10 rounded-[2.5rem] text-white">
-                    <h3 class="text-amber-500 font-black text-[10px] uppercase tracking-widest mb-4">NY DINA</h3>
-                    <p class="text-3xl font-bold italic" x-text="'« ' + settings.dina + ' »'"></p>
+                
+                <div class="space-y-6">
+                    <div class="bg-[#2d1b15] p-12 rounded-[3.5rem] text-white shadow-2xl text-center">
+                        <h3 class="text-[#d97706] font-black text-xs uppercase tracking-[0.4em] mb-6">Ny Dinantsika</h3>
+                        <p class="text-3xl font-bold leading-tight" x-text="settings.dina"></p>
+                    </div>
+                    <div class="card p-10 flex flex-col items-center justify-center">
+                        <div class="text-8xl font-black marron-text" x-text="scouts.length"></div>
+                        <div class="text-[12px] font-black uppercase text-stone-400 tracking-[0.4em] mt-2">Isan'ny Zatovo</div>
+                    </div>
                 </div>
             </div>
 
-            <!-- MEMBERS -->
-            <div x-show="tab === 'members'" class="max-w-4xl mx-auto space-y-8">
+            <!-- MEMBRES -->
+            <div x-show="tab === 'members'" class="max-w-2xl mx-auto space-y-8 animate-in slide-in-from-bottom-4">
+                <div class="flex flex-col gap-4 text-center">
+                    <h2 class="text-5xl font-black marron-text uppercase tracking-tighter">Zatovo</h2>
+                    <button @click="showAddScout = !showAddScout" class="btn-marron mx-auto" x-text="showAddScout ? 'Hanafoana' : '+ Manampy Zatovo'"></button>
+                </div>
+
+                <div x-show="showAddScout" class="bg-stone-100 p-8 rounded-[2.5rem] space-y-4">
+                    <input type="text" x-model="newScout.name" placeholder="Anarana" class="input-white">
+                    <input type="text" x-model="newScout.fname" placeholder="Fanampiny" class="input-white">
+                    <input type="text" x-model="newScout.phone" placeholder="Finday" class="input-white">
+                    <button @click="addScout()" class="btn-marron w-full">Tehirizina</button>
+                </div>
+
+                <div class="space-y-4">
+                    <template x-for="s in scouts" :key="s.id">
+                        <div class="card p-6 flex items-center gap-6 group">
+                            <div class="w-16 h-16 bg-stone-100 rounded-2xl flex items-center justify-center font-black text-2xl text-[#d97706]" x-text="s.name[0]"></div>
+                            <div class="flex-1">
+                                <h4 class="font-black text-xl marron-text uppercase tracking-tight" x-text="s.name"></h4>
+                                <p class="text-xs font-bold text-stone-400 uppercase" x-text="s.fname"></p>
+                            </div>
+                            <div class="text-right mr-4">
+                                <p class="font-bold text-sm marron-text" x-text="s.phone"></p>
+                            </div>
+                            <button @click="deleteItem('scouts', s.id)" class="text-stone-300 hover:text-red-500 transition-colors p-2">✕</button>
+                        </div>
+                    </template>
+                </div>
+            </div>
+
+            <!-- PROGRAMME -->
+            <div x-show="tab === 'events'" class="max-w-2xl mx-auto space-y-8">
                 <div class="flex justify-between items-center">
-                    <h2 class="text-4xl font-black uppercase tracking-tighter">Zatovo</h2>
-                    <button @click="addScout()" class="bg-stone-900 text-white px-8 py-3 rounded-xl font-black text-xs uppercase">+ Zatovo</button>
+                    <h2 class="text-5xl font-black marron-text uppercase tracking-tighter">Programma</h2>
+                    <button @click="showAddEvent = !showAddEvent" class="btn-marron" x-text="showAddEvent ? 'Hanafoana' : '+ Vaovao'"></button>
                 </div>
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <template x-for="s in scouts">
-                        <div class="bg-white p-6 rounded-3xl border border-stone-200 text-center">
-                            <div class="w-16 h-16 bg-stone-100 rounded-full mx-auto mb-3 flex items-center justify-center font-black text-xl text-stone-400" x-text="s.name[0]"></div>
-                            <h4 class="font-black text-stone-800" x-text="s.name"></h4>
+
+                <div x-show="showAddEvent" class="bg-stone-100 p-8 rounded-[2.5rem]">
+                    <input type="text" x-model="newEvent.title" placeholder="Lohahevitra" class="input-white">
+                    <input type="date" x-model="newEvent.date" class="input-white">
+                    <input type="text" x-model="newEvent.location" placeholder="Toerana" class="input-white">
+                    <button @click="addEvent()" class="btn-marron w-full mt-2">Ampidirina</button>
+                </div>
+
+                <div class="space-y-6">
+                    <template x-for="e in events" :key="e.id">
+                        <div class="card p-8 flex items-center gap-10 border-l-[12px] border-[#2d1b15] relative group">
+                            <div class="text-center w-20 flex-shrink-0">
+                                <p class="text-xs font-black text-[#d97706] uppercase" x-text="new Date(e.date).toLocaleString('mg-MG', {month: 'long'})"></p>
+                                <p class="text-5xl font-black marron-text leading-none" x-text="e.date.split('-')[2]"></p>
+                            </div>
+                            <div class="flex-1">
+                                <h4 class="text-2xl font-black marron-text uppercase tracking-tight mb-1" x-text="e.title"></h4>
+                                <span class="text-[11px] font-black text-white bg-[#d97706] px-3 py-1 rounded-full uppercase tracking-widest" x-text="e.location"></span>
+                            </div>
+                            <button @click="deleteItem('events', e.id)" class="opacity-0 group-hover:opacity-100 text-stone-300 hover:text-red-500 p-2">✕</button>
                         </div>
                     </template>
                 </div>
             </div>
 
-            <!-- CHAT -->
-            <div x-show="tab === 'chat'" class="max-w-4xl mx-auto h-[80vh] flex flex-col gap-4">
-                <div id="chat-box" class="flex-1 bg-white rounded-[2rem] border border-stone-200 p-6 overflow-y-auto">
-                    <template x-for="m in messages">
-                        <div :class="m.uid === user?.uid ? 'text-right' : 'text-left'" class="mb-4">
-                            <p class="text-[9px] font-black text-stone-400 uppercase mb-1" x-text="m.user"></p>
-                            <div :class="m.uid === user?.uid ? 'bg-amber-600 text-white' : 'bg-stone-100'" class="px-5 py-2 rounded-2xl inline-block text-sm font-bold" x-text="m.text"></div>
+            <!-- EDUCATION -->
+            <div x-show="tab === 'edu'" class="max-w-2xl mx-auto space-y-8">
+                <div class="flex justify-between items-center">
+                    <h2 class="text-5xl font-black marron-text uppercase tracking-tighter">Taranja</h2>
+                    <button @click="showAddFiche = !showAddFiche" class="btn-marron" x-text="showAddFiche ? 'Hanafoana' : '+ Vaovao'"></button>
+                </div>
+
+                <div x-show="showAddFiche" class="bg-stone-100 p-8 rounded-[2.5rem]">
+                    <input type="text" x-model="newFiche.title" placeholder="Lohahevitra" class="input-white">
+                    <textarea x-model="newFiche.vht" placeholder="Vokatra Ho Tratrarina" class="input-white h-24 pt-4"></textarea>
+                    <button @click="addFiche()" class="btn-marron w-full">Tehirizina</button>
+                </div>
+
+                <div class="space-y-8">
+                    <template x-for="f in fiches" :key="f.id">
+                        <div class="card p-10 group relative">
+                            <button @click="deleteItem('fiches', f.id)" class="absolute top-4 right-4 opacity-0 group-hover:opacity-100 text-stone-300 hover:text-red-500">✕</button>
+                            <h4 class="text-4xl font-black marron-text mb-4 uppercase tracking-tight" x-text="f.title"></h4>
+                            <div class="bg-stone-50 p-8 rounded-[2.5rem] border border-stone-100 group-hover:bg-amber-50 transition-all">
+                                <p class="text-sm font-bold text-stone-600 italic" x-text="'« ' + f.vht + ' »'"></p>
+                            </div>
                         </div>
                     </template>
-                </div>
-                <div class="flex gap-2">
-                    <input type="text" x-model="chatInput" @keyup.enter="sendMessage()" placeholder="Hafatra..." class="flex-1 p-4 rounded-2xl border border-stone-200 outline-none focus:ring-2 focus:ring-amber-500/20 font-bold">
-                    <button @click="sendMessage()" class="bg-stone-900 text-white px-8 rounded-2xl font-black">ALFA</button>
                 </div>
             </div>
 
             <!-- SETTINGS -->
-            <div x-show="tab === 'settings'" class="max-w-4xl mx-auto space-y-6">
-                <h2 class="text-4xl font-black uppercase tracking-tighter">Paramètre</h2>
-                <div class="bg-white p-8 rounded-[2rem] border border-stone-200 space-y-6">
+            <div x-show="tab === 'settings'" class="max-w-2xl mx-auto pt-4">
+                <h2 class="text-4xl font-black marron-text uppercase tracking-tighter mb-8">Fikirakirana</h2>
+                <div class="card p-12 space-y-8">
                     <div>
-                        <label class="text-[10px] font-black uppercase text-stone-400">Anaran'ny Vondrona</label>
-                        <input type="text" x-model="settings.groupName" @blur="saveSettings()" class="w-full p-4 mt-1 bg-stone-50 rounded-xl border-none outline-none font-bold focus:ring-2 focus:ring-amber-500">
+                        <label class="text-[11px] font-black uppercase text-stone-400 ml-4 mb-2 block tracking-widest">Anaran'ny Vondrona</label>
+                        <input type="text" x-model="settings.groupName" class="input-white py-6 px-8">
                     </div>
                     <div>
-                        <label class="text-[10px] font-black uppercase text-stone-400">Dina</label>
-                        <input type="text" x-model="settings.dina" @blur="saveSettings()" class="w-full p-4 mt-1 bg-stone-50 rounded-xl border-none outline-none font-bold focus:ring-2 focus:ring-amber-500">
+                        <label class="text-[11px] font-black uppercase text-stone-400 ml-4 mb-2 block tracking-widest">Ny Dina</label>
+                        <textarea x-model="settings.dina" class="input-white h-32 pt-6 px-8"></textarea>
                     </div>
-                    <button @click="saveSettings()" class="w-full bg-amber-600 text-white py-4 rounded-xl font-black uppercase text-xs">Tehirizina ny fanovana</button>
+                    <button @click="tab = 'home'" class="btn-marron w-full py-6 text-sm">Hitehirizana ny fanovana</button>
                 </div>
             </div>
 
