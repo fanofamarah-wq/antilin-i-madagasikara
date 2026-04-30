@@ -15,6 +15,16 @@
     
     <!-- Logic Application -->
     <script>
+        // Configuration Firebase
+        const __firebase_config_user = {
+            apiKey: "AIzaSyCWHPT2XDbpEA0Jw-t6IE0w6o6K5MkJz4Q",
+            authDomain: "antilin-i-madagasikara.firebaseapp.com",
+            projectId: "antilin-i-madagasikara",
+            storageBucket: "antilin-i-madagasikara.firebasestorage.app",
+            messagingSenderId: "881813118154",
+            appId: "1:881813118154:web:1e4284b18f9440f004e833"
+        };
+
         function scoutApp() {
             return {
                 isMenuOpen: false,
@@ -59,9 +69,16 @@
 
                 async initFirebase() {
                     try {
-                        const firebaseConfig = JSON.parse(__firebase_config);
+                        // Priorité à la config fournie par l'utilisateur, sinon utilise la globale de l'environnement
+                        let config;
+                        if (__firebase_config_user.apiKey !== "VOTRE_API_KEY") {
+                            config = __firebase_config_user;
+                        } else {
+                            config = JSON.parse(__firebase_config);
+                        }
+
                         if (!firebase.apps.length) {
-                            firebase.initializeApp(firebaseConfig);
+                            firebase.initializeApp(config);
                         }
                         
                         const auth = firebase.auth();
@@ -90,22 +107,22 @@
 
                     base.collection('settings').doc('global').onSnapshot(doc => {
                         if (doc.exists) this.settings = { ...this.settings, ...doc.data() };
-                    });
+                    }, err => console.error(err));
 
                     base.collection('events').onSnapshot(snap => {
                         this.events = snap.docs.map(d => ({ id: d.id, ...d.data() }));
                         this.$nextTick(() => lucide.createIcons());
-                    });
+                    }, err => console.error(err));
 
                     base.collection('scouts').onSnapshot(snap => {
                         this.scouts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
                         this.$nextTick(() => lucide.createIcons());
-                    });
+                    }, err => console.error(err));
 
                     base.collection('fiches').onSnapshot(snap => {
                         this.fiches = snap.docs.map(d => ({ id: d.id, ...d.data() }));
                         this.$nextTick(() => lucide.createIcons());
-                    });
+                    }, err => console.error(err));
                 },
 
                 handleFileUpload(event, target, key) {
@@ -123,6 +140,7 @@
                 },
 
                 async saveItem(collectionName, dataKey) {
+                    if (!this.user) return;
                     const db = firebase.firestore();
                     const data = { ...this.forms[dataKey] };
                     
@@ -136,12 +154,14 @@
                 },
 
                 async deleteItem(collectionName, id) {
+                    if (!this.user) return;
                     const db = firebase.firestore();
                     await db.collection('artifacts').doc(this.appId).collection('public').doc('data')
                         .collection(collectionName).doc(id).delete();
                 },
 
                 async saveSettings() {
+                    if (!this.user) return;
                     const db = firebase.firestore();
                     await db.collection('artifacts').doc(this.appId).collection('public').doc('data')
                         .collection('settings').doc('global').set(this.settings);
