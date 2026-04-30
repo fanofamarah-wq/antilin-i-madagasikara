@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Valizy Scoutisme - Gestion de Groupe</title>
+    <title>Valizy Scoutisme - Système Complet</title>
     
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -34,10 +34,13 @@
                 user: null,
                 appId: typeof __app_id !== 'undefined' ? __app_id : 'valizy-scout-v2-final',
                 isGeneratingAI: false,
-                archiveFilter: 'all',
+                
+                // Filtres de sections
+                sectionFilter: 'all',
+                sections: ['Louvteaux', 'Mpianjoria', 'Mpamakilay', 'Mpiandalana'],
 
-                // --- CHAT STATE ---
-                chatUser: null, // Utilisateur du chat (pseudo + pass)
+                // --- CHAT STATE (TAFASIRY) ---
+                chatUser: null,
                 chatLogin: { pseudo: '', password: '' },
                 chatMessages: [],
                 newMessage: '',
@@ -64,9 +67,9 @@
                 ],
                 
                 forms: {
-                    event: { title: '', date: '', location: '' },
-                    scout: { name: '', fname: '', phone: '', birth: '', address: '', facebook: '', note: '', photo: null },
-                    fiche: { title: '', category: '', content: '', theme: '', goals: '', duration: '', participants: '', note: '' },
+                    event: { title: '', date: '', location: '', description: '', section: 'Louvteaux' },
+                    scout: { name: '', fname: '', phone: '', birth: '', address: '', facebook: '', note: '', photo: null, section: 'Louvteaux' },
+                    fiche: { title: '', category: '', content: '', theme: '', goals: '', duration: '', participants: '', note: '', section: 'Louvteaux' },
                     archive: { title: '', category: 'Ho an\'ny rehetra', fileData: null, fileName: '' }
                 },
 
@@ -77,11 +80,11 @@
                     { id: 'fanabeazana', label: 'Fanabeazana', icon: 'book-open' },
                     { id: 'tetiandro', label: 'Tetiandro', icon: 'layout' },
                     { id: 'tahiry', label: 'Tahiry', icon: 'folder-open' },
-                    { id: 'chat', label: 'Tafasiry', icon: 'message-circle' }, // Nouvel onglet
+                    { id: 'chat', label: 'Tafasiry', icon: 'message-circle' },
                     { id: 'settings', label: 'Paramètre', icon: 'settings' }
                 ],
 
-                // --- GEMINI LOGIC ---
+                // --- AI GEMINI ---
                 async callGemini(prompt, systemInstruction = "") {
                     this.isGeneratingAI = true;
                     let retries = 0;
@@ -112,28 +115,18 @@
 
                 async generateFicheWithAI() {
                     if (!this.forms.fiche.title) return this.showNotification("Ampidiro ny lohateny!");
-                    const prompt = `Mamorona fiche technique scout amin'ny teny malagasy ho an'ny: "${this.forms.fiche.title}". Omeo JSON: content, goals, duration, participants.`;
-                    const res = await this.callGemini(prompt, "Mpitarika skoto matihanina ianao.");
+                    const prompt = `Crée une fiche technique scout détaillée en malgache pour: "${this.forms.fiche.title}". Retourne un JSON uniquement: { "content": "...", "goals": "...", "duration": "...", "participants": "..." }.`;
+                    const res = await this.callGemini(prompt, "Tu es un chef scout expert.");
                     if (res) {
                         try {
-                            const data = JSON.parse(res.replace(/```json|```/g, ""));
+                            const cleanJson = res.replace(/```json|```/g, "").trim();
+                            const data = JSON.parse(cleanJson);
                             this.forms.fiche = { ...this.forms.fiche, ...data };
                         } catch(e) { this.forms.fiche.content = res; }
                     }
                 },
 
-                async analyzeProgressWithAI() {
-                    const data = this.plans.map(p => `T${p.trim}: ${p.content}`).join("\n");
-                    const res = await this.callGemini(`Diniho ireto tombana ireto: \n${data}`, "Commissaire pédagogique ianao.");
-                    if (res) {
-                        const modal = document.createElement('div');
-                        modal.className = "fixed inset-0 bg-black/80 flex items-center justify-center z-[200] p-4";
-                        modal.innerHTML = `<div class="bg-white p-8 rounded-[2.5rem] max-w-2xl w-full shadow-2xl overflow-y-auto max-h-[80vh]"><h3 class="text-2xl font-black mb-4 text-amber-600">✨ IA ANALYSIS</h3><p class="text-sm leading-relaxed">${res}</p><button onclick="this.parentElement.parentElement.remove()" class="mt-8 w-full bg-stone-900 text-white py-4 rounded-2xl font-bold">HIKATONA</button></div>`;
-                        document.body.appendChild(modal);
-                    }
-                },
-
-                // --- CHAT LOGIC ---
+                // --- TAFASIRY LOGIC ---
                 async enterChat() {
                     if (!this.chatLogin.pseudo || !this.chatLogin.password) return this.showNotification("Fenoy ny pseudo sy password");
                     const db = firebase.firestore();
@@ -148,7 +141,6 @@
                             this.showNotification("Diso ny teny miafina!");
                         }
                     } else {
-                        // Création automatique si premier accès avec 1234
                         if (this.chatLogin.password === '1234') {
                             await userRef.set({ pseudo: this.chatLogin.pseudo, password: '1234' });
                             this.chatUser = { pseudo: this.chatLogin.pseudo, password: '1234' };
@@ -157,18 +149,6 @@
                             this.showNotification("Ny teny miafina voalohany dia 1234");
                         }
                     }
-                },
-
-                async changeChatPassword() {
-                    if (!this.newPassValue) return;
-                    const db = firebase.firestore();
-                    await db.collection('artifacts').doc(this.appId).collection('public').doc('data').collection('chat_users').doc(this.chatUser.pseudo).update({
-                        password: this.newPassValue
-                    });
-                    this.chatUser.password = this.newPassValue;
-                    this.isChangingPass = false;
-                    this.newPassValue = '';
-                    this.showNotification("Voasolo ny teny miafina!");
                 },
 
                 async sendMessage() {
@@ -190,7 +170,7 @@
                     }, 100);
                 },
 
-                // --- CORE FIREBASE ---
+                // --- CORE DATA HANDLING ---
                 async initFirebase() {
                     try {
                         const config = (__firebase_config_user.apiKey !== "VOTRE_API_KEY") ? __firebase_config_user : JSON.parse(__firebase_config);
@@ -227,23 +207,10 @@
                         }
                     });
                     
-                    // Sync Chat
                     base.collection('chat_messages').onSnapshot(snap => {
                         this.chatMessages = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => a.timestamp - b.timestamp);
                         this.scrollChat();
                     });
-                },
-
-                handleFileUpload(event, target, key) {
-                    const file = event.target.files[0];
-                    if (!file) return;
-                    const reader = new FileReader();
-                    reader.onload = (e) => {
-                        if (target === 'settings') this.settings[key] = e.target.result;
-                        else if (target === 'archive') { this.forms.archive.fileData = e.target.result; this.forms.archive.fileName = file.name; }
-                        else this.forms[target][key] = e.target.result;
-                    };
-                    reader.readAsDataURL(file);
                 },
 
                 async saveItem(col, key) {
@@ -251,11 +218,18 @@
                     const db = firebase.firestore();
                     await db.collection('artifacts').doc(this.appId).collection('public').doc('data').collection(col).add({ ...this.forms[key], createdAt: Date.now() });
                     this.showAddModal = false;
-                    // Reset Logic omitted for brevity but maintained in function
+                    this.resetForm(key);
+                    this.showNotification("Voatahiry!");
+                },
+
+                resetForm(key) {
+                    if(key === 'scout') this.forms.scout = { name: '', fname: '', phone: '', birth: '', address: '', facebook: '', note: '', photo: null, section: 'Louvteaux' };
+                    if(key === 'fiche') this.forms.fiche = { title: '', category: '', content: '', theme: '', goals: '', duration: '', participants: '', note: '', section: 'Louvteaux' };
+                    if(key === 'event') this.forms.event = { title: '', date: '', location: '', description: '', section: 'Louvteaux' };
                 },
 
                 async deleteItem(col, id) {
-                    if (!this.user) return;
+                    if (!confirm("Tena hodiovina ve ity?")) return;
                     await firebase.firestore().collection('artifacts').doc(this.appId).collection('public').doc('data').collection(col).doc(id).delete();
                 },
 
@@ -264,165 +238,375 @@
                     this.showNotification("Vita tehirizina!");
                 },
 
-                async savePlan(trim) {
-                    const plan = this.plans.find(p => p.trim === trim);
-                    await firebase.firestore().collection('artifacts').doc(this.appId).collection('public').doc('data').collection('plans').doc(`trim-${trim}`).set(plan);
-                    this.showNotification(`Vita T${trim}`);
-                },
-
-                downloadFile(data, name) {
-                    const link = document.createElement('a');
-                    link.href = data; link.download = name || 'file'; link.click();
-                },
-
                 showNotification(text) {
                     const n = document.createElement('div');
-                    n.className = "fixed bottom-4 right-4 bg-stone-900 text-white px-6 py-3 rounded-xl shadow-2xl z-[500]";
+                    n.className = "fixed bottom-6 right-6 bg-stone-900 text-white px-8 py-4 rounded-2xl shadow-2xl z-[500] font-bold text-sm animate-bounce";
                     n.innerText = text; document.body.appendChild(n);
                     setTimeout(() => n.remove(), 3000);
                 },
 
-                get filteredArchives() {
-                    return this.archiveFilter === 'all' ? this.archives : this.archives.filter(a => a.category === this.archiveFilter);
+                // Logic de filtre
+                get filteredScouts() {
+                    return this.sectionFilter === 'all' ? this.scouts : this.scouts.filter(s => s.section === this.sectionFilter);
+                },
+                get filteredFiches() {
+                    return this.sectionFilter === 'all' ? this.fiches : this.fiches.filter(f => f.section === this.sectionFilter);
+                },
+                get filteredEvents() {
+                    return this.sectionFilter === 'all' ? this.events : this.events.filter(e => e.section === this.sectionFilter);
                 }
             }
         }
     </script>
 
-    <!-- Alpine.js -->
+    <!-- Alpine.js & Icons -->
     <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
 
     <style>
         [x-cloak] { display: none !important; }
         .tab-content { animation: slideUp 0.4s ease-out; }
-        @keyframes slideUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes slideUp { from { opacity: 0; transform: translateY(15px); } to { opacity: 1; transform: translateY(0); } }
         .ai-pulse { animation: ai-glow 2s infinite; }
-        @keyframes ai-glow { 0%, 100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.4); } 70% { box-shadow: 0 0 0 10px rgba(245, 158, 11, 0); } }
+        @keyframes ai-glow { 0%, 100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.4); } 70% { box-shadow: 0 0 0 12px rgba(245, 158, 11, 0); } }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #e5e7eb; border-radius: 10px; }
     </style>
 </head>
-<body class="bg-[#fdfcfb] text-stone-900 font-sans" x-data="scoutApp()" x-init="initFirebase()" x-cloak>
+<body class="bg-[#fcfbf9] text-stone-900 font-sans selection:bg-amber-200" x-data="scoutApp()" x-init="initFirebase()" x-cloak>
 
-    <!-- Loader AI -->
-    <div x-show="isGeneratingAI" class="fixed inset-0 bg-white/80 backdrop-blur-md z-[600] flex flex-col items-center justify-center">
-        <div class="w-12 h-12 border-4 border-amber-600 border-t-transparent rounded-full animate-spin mb-4"></div>
-        <p class="font-black text-xs uppercase tracking-widest">Mandinika ny ✨ AI...</p>
+    <!-- Overlay AI -->
+    <div x-show="isGeneratingAI" class="fixed inset-0 bg-white/90 backdrop-blur-xl z-[600] flex flex-col items-center justify-center">
+        <div class="w-16 h-16 border-4 border-amber-600 border-t-transparent rounded-full animate-spin mb-6"></div>
+        <p class="font-black text-xs uppercase tracking-[0.3em] text-stone-400">Mandinika ny ✨ AI...</p>
     </div>
 
-    <div class="min-h-screen flex flex-col lg:flex-row overflow-hidden">
+    <div class="min-h-screen flex flex-col lg:flex-row">
         
-        <!-- Sidebar -->
+        <!-- Sidebar Navigation -->
         <aside :class="isMenuOpen ? 'translate-x-0' : '-translate-x-full'" 
-               class="fixed inset-y-0 left-0 bg-[#1e130f] text-white w-64 transform transition-transform duration-300 ease-in-out z-50 lg:relative lg:translate-x-0 shadow-2xl">
-            <div class="p-6 h-full flex flex-col">
-                <div class="flex items-center gap-3 mb-10">
-                    <div class="w-10 h-10 bg-amber-600 rounded-xl flex items-center justify-center font-black">V</div>
+               class="fixed inset-y-0 left-0 bg-[#1a120e] text-white w-72 transform transition-transform duration-500 ease-in-out z-50 lg:relative lg:translate-x-0 shadow-2xl flex flex-col">
+            <div class="p-8">
+                <div class="flex items-center gap-4 mb-12">
+                    <div class="w-12 h-12 bg-amber-600 rounded-2xl flex items-center justify-center shadow-lg shadow-amber-900/20">
+                        <i data-lucide="shield" class="w-6 h-6 text-white"></i>
+                    </div>
                     <div>
-                        <h2 class="font-black text-sm tracking-tighter">VALIZY</h2>
-                        <p class="text-[8px] text-amber-500 font-bold uppercase tracking-widest">Scoutisme</p>
+                        <h2 class="font-black text-base tracking-tighter leading-none">VALIZY</h2>
+                        <p class="text-[9px] text-amber-500 font-bold uppercase tracking-widest mt-1">Antilin'i Madagasikara</p>
                     </div>
                 </div>
-                <nav class="space-y-1 flex-1 overflow-y-auto">
+                
+                <nav class="space-y-1">
                     <template x-for="item in menuItems" :key="item.id">
-                        <button @click="activeTab = item.id; isMenuOpen = false; if(item.id === 'chat') scrollChat();" 
-                                :class="activeTab === item.id ? 'bg-amber-600 text-white' : 'hover:bg-white/5 text-stone-400'"
-                                class="w-full flex items-center gap-3 px-4 py-3.5 rounded-xl transition-all font-bold uppercase text-[10px] tracking-wider text-left">
-                            <i :data-lucide="item.icon" class="w-4 h-4"></i>
+                        <button @click="activeTab = item.id; isMenuOpen = false; if(item.id === 'chat') scrollChat(); sectionFilter = 'all';" 
+                                :class="activeTab === item.id ? 'bg-amber-600 text-white shadow-lg shadow-amber-900/40' : 'text-stone-500 hover:bg-white/5 hover:text-stone-300'"
+                                class="w-full flex items-center gap-4 px-5 py-4 rounded-2xl transition-all duration-300 font-bold uppercase text-[10px] tracking-wider text-left group">
+                            <i :data-lucide="item.icon" class="w-4 h-4 transition-transform group-hover:scale-110"></i>
                             <span x-text="item.label"></span>
                         </button>
                     </template>
                 </nav>
             </div>
+            
+            <div class="mt-auto p-8 border-t border-white/5">
+                <div class="flex items-center gap-3">
+                    <div class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                    <span class="text-[9px] font-black uppercase text-stone-500">Service Actif</span>
+                </div>
+            </div>
         </aside>
 
-        <!-- Main Content -->
-        <main class="flex-1 h-screen overflow-y-auto p-6 lg:p-10 w-full max-w-6xl mx-auto">
+        <!-- Main Content Area -->
+        <main class="flex-1 h-screen overflow-y-auto p-6 lg:p-12">
             
-            <header class="lg:hidden mb-6 flex justify-between items-center">
+            <!-- Mobile Header -->
+            <header class="lg:hidden mb-8 flex justify-between items-center bg-white p-4 rounded-2xl shadow-sm">
                 <span class="font-black text-[10px] uppercase tracking-widest text-stone-400" x-text="settings.groupName"></span>
-                <button @click="isMenuOpen = true" class="p-2 bg-white rounded-lg shadow-sm border border-stone-200">
-                    <i data-lucide="menu" class="w-5 h-5"></i>
+                <button @click="isMenuOpen = true" class="p-3 bg-stone-100 rounded-xl">
+                    <i data-lucide="menu" class="w-5 h-5 text-stone-600"></i>
                 </button>
             </header>
 
-            <div class="tab-content">
+            <div class="tab-content max-w-5xl mx-auto">
                 
-                <!-- ACCUEIL, PROGRAMME, ZATOVO, FANABEAZANA, TETIANDRO, TAHIRY, SETTINGS -->
-                <!-- [Structure existante maintenue intégralement] -->
-
+                <!-- TONGASOA (Accueil) -->
                 <div x-show="activeTab === 'accueil'">
-                    <div class="flex flex-col items-center lg:items-start lg:flex-row gap-8 py-8">
-                        <div class="w-48 h-48 bg-stone-900 rounded-[2.5rem] border-8 border-white shadow-2xl flex items-center justify-center overflow-hidden rotate-2">
-                             <template x-if="settings.logo"><img :src="settings.logo" class="w-full h-full object-cover"></template>
-                             <template x-if="!settings.logo"><i data-lucide="shield" class="w-16 h-16 text-amber-600"></i></template>
+                    <div class="flex flex-col lg:flex-row items-center gap-12 py-12">
+                        <div class="relative group">
+                            <div class="absolute -inset-4 bg-amber-600/20 rounded-[3rem] blur-2xl group-hover:bg-amber-600/30 transition-all"></div>
+                            <div class="w-64 h-64 bg-stone-900 rounded-[3rem] border-[12px] border-white shadow-2xl relative overflow-hidden flex items-center justify-center transform hover:rotate-3 transition-transform duration-500">
+                                <template x-if="settings.logo"><img :src="settings.logo" class="w-full h-full object-cover"></template>
+                                <template x-if="!settings.logo"><i data-lucide="mountain" class="w-24 h-24 text-amber-600"></i></template>
+                            </div>
                         </div>
-                        <div class="flex-1 text-center lg:text-left">
-                            <h1 class="text-5xl font-black uppercase tracking-tighter" x-text="settings.groupName"></h1>
-                            <p class="text-amber-600 font-bold uppercase tracking-widest text-xs mt-2" x-text="settings.fivondronana"></p>
-                            <p class="text-stone-400 italic text-xl mt-6" x-text="'&quot;' + settings.dina + '&quot;'"></p>
+                        <div class="text-center lg:text-left">
+                            <h1 class="text-6xl lg:text-7xl font-black uppercase tracking-tighter text-stone-900 leading-[0.9]" x-text="settings.groupName"></h1>
+                            <div class="flex flex-wrap justify-center lg:justify-start gap-4 mt-6">
+                                <span class="bg-amber-100 text-amber-700 px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest" x-text="settings.fivondronana"></span>
+                                <span class="bg-stone-100 text-stone-500 px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest">Antily Madagasikara</span>
+                            </div>
+                            <p class="text-stone-400 italic text-2xl mt-8 font-serif" x-text="'&quot;' + settings.dina + '&quot;'"></p>
                         </div>
                     </div>
                 </div>
 
-                <!-- ONGLET CHAT (TAFASIRY) -->
-                <div x-show="activeTab === 'chat'" class="h-[calc(100vh-100px)] flex flex-col">
-                    <div class="flex justify-between items-end border-b-4 border-stone-900 pb-4 mb-6">
-                        <h2 class="text-5xl font-black text-stone-900 uppercase tracking-tighter">Tafasiry</h2>
-                        <template x-if="chatUser">
-                            <button @click="isChangingPass = !isChangingPass" class="text-[10px] font-black uppercase text-amber-600 border border-amber-600 px-3 py-1 rounded-lg">Hanova Password</button>
+                <!-- ZATOVO (Listes Scouts) -->
+                <div x-show="activeTab === 'lisitra'">
+                    <div class="flex flex-col md:flex-row justify-between md:items-end border-b-4 border-stone-900 pb-6 mb-8 gap-6">
+                        <div>
+                            <p class="text-[10px] font-black uppercase tracking-[0.3em] text-amber-600 mb-2">Mpandray anjara</p>
+                            <h2 class="text-6xl font-black text-stone-900 uppercase tracking-tighter">Zatovo</h2>
+                        </div>
+                        <div class="flex items-center gap-3">
+                            <select x-model="sectionFilter" class="bg-white border-2 border-stone-100 px-6 py-3 rounded-2xl text-xs font-black uppercase outline-none focus:border-amber-600 transition-colors cursor-pointer">
+                                <option value="all">SAMPANA REHETRA</option>
+                                <template x-for="sec in sections" :key="sec"><option :value="sec" x-text="sec.toUpperCase()"></option></template>
+                            </select>
+                            <button @click="showAddModal = !showAddModal" class="bg-stone-900 text-white px-8 py-4 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-amber-600 transition-colors shadow-lg shadow-stone-200">
+                                <span x-text="showAddModal ? 'Hikatona' : 'Vaovao'"></span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Modal d'ajout Scout -->
+                    <div x-show="showAddModal" class="bg-white p-8 rounded-[2.5rem] border-2 border-stone-100 shadow-xl mb-12 animate-in slide-in-from-top-4 duration-500">
+                        <div class="grid md:grid-cols-2 gap-6">
+                            <div class="space-y-4">
+                                <label class="text-[10px] font-black uppercase text-stone-400">Section</label>
+                                <select x-model="forms.scout.section" class="w-full p-4 bg-stone-50 border-2 border-stone-100 rounded-2xl outline-none focus:border-amber-600">
+                                    <template x-for="sec in sections" :key="sec"><option :value="sec" x-text="sec"></option></template>
+                                </select>
+                                <input type="text" x-model="forms.scout.name" placeholder="Anarana" class="w-full p-4 bg-stone-50 border-2 border-stone-100 rounded-2xl outline-none focus:border-amber-600">
+                                <input type="text" x-model="forms.scout.fname" placeholder="Fanampiny" class="w-full p-4 bg-stone-50 border-2 border-stone-100 rounded-2xl outline-none focus:border-amber-600">
+                                <input type="date" x-model="forms.scout.birth" class="w-full p-4 bg-stone-50 border-2 border-stone-100 rounded-2xl outline-none">
+                            </div>
+                            <div class="space-y-4">
+                                <input type="tel" x-model="forms.scout.phone" placeholder="Laharana finday" class="w-full p-4 bg-stone-50 border-2 border-stone-100 rounded-2xl outline-none">
+                                <input type="text" x-model="forms.scout.address" placeholder="Adiresy" class="w-full p-4 bg-stone-50 border-2 border-stone-100 rounded-2xl outline-none">
+                                <textarea x-model="forms.scout.note" placeholder="Fanamarihana hafa..." class="w-full p-4 bg-stone-50 border-2 border-stone-100 rounded-2xl outline-none h-32"></textarea>
+                            </div>
+                        </div>
+                        <button @click="saveItem('scouts', 'scout')" class="w-full mt-8 bg-stone-900 text-white py-5 rounded-2xl font-black uppercase tracking-widest hover:bg-amber-600 shadow-xl">Tehirizina ao amin'ny lisitra</button>
+                    </div>
+
+                    <div class="grid md:grid-cols-2 gap-4">
+                        <template x-for="s in filteredScouts" :key="s.id">
+                            <div class="bg-white p-6 rounded-[2rem] shadow-sm border border-stone-100 flex justify-between items-center group hover:border-amber-200 transition-all hover:shadow-md">
+                                <div class="flex items-center gap-5">
+                                    <div class="w-14 h-14 bg-stone-50 rounded-2xl flex items-center justify-center text-stone-300 group-hover:bg-amber-50 group-hover:text-amber-600 transition-colors">
+                                        <i data-lucide="user" class="w-6 h-6"></i>
+                                    </div>
+                                    <div>
+                                        <h4 class="font-black uppercase text-sm text-stone-900" x-text="s.name + ' ' + (s.fname || '')"></h4>
+                                        <div class="flex items-center gap-3 mt-1">
+                                            <span class="text-[9px] font-black text-amber-600 uppercase bg-amber-50 px-2 py-0.5 rounded" x-text="s.section"></span>
+                                            <span class="text-[9px] font-bold text-stone-400" x-text="s.phone || 'Tsy misy finday'"></span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <button @click="deleteItem('scouts', s.id)" class="p-2 text-stone-200 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all">
+                                    <i data-lucide="trash-2" class="w-4 h-4"></i>
+                                </button>
+                            </div>
                         </template>
                     </div>
+                </div>
 
-                    <!-- LOGIN CHAT -->
-                    <div x-show="!chatUser" class="flex-1 flex items-center justify-center">
-                        <div class="bg-white p-10 rounded-[2.5rem] shadow-xl border border-stone-100 w-full max-w-md text-center">
-                            <i data-lucide="lock" class="w-12 h-12 text-amber-600 mx-auto mb-4"></i>
-                            <h3 class="font-black uppercase mb-6">Fidirana amin'ny Tafasiry</h3>
+                <!-- FANABEAZANA (Fiches Pédagogiques) -->
+                <div x-show="activeTab === 'fanabeazana'">
+                    <div class="flex flex-col md:flex-row justify-between md:items-end border-b-4 border-stone-900 pb-6 mb-8 gap-6">
+                        <div>
+                            <p class="text-[10px] font-black uppercase tracking-[0.3em] text-amber-600 mb-2">Tantsoroka</p>
+                            <h2 class="text-6xl font-black text-stone-900 uppercase tracking-tighter">Fanabeazana</h2>
+                        </div>
+                        <div class="flex items-center gap-3">
+                            <select x-model="sectionFilter" class="bg-white border-2 border-stone-100 px-6 py-3 rounded-2xl text-xs font-black uppercase outline-none focus:border-amber-600 transition-colors">
+                                <option value="all">SAMPANA REHETRA</option>
+                                <template x-for="sec in sections" :key="sec"><option :value="sec" x-text="sec.toUpperCase()"></option></template>
+                            </select>
+                            <button @click="showAddModal = !showAddModal" class="bg-amber-600 text-white px-8 py-4 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-stone-900 transition-colors shadow-lg shadow-amber-100">
+                                <span x-text="showAddModal ? 'Hikatona' : 'Fiche Vaovao'"></span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div x-show="showAddModal" class="bg-[#1a120e] text-white p-10 rounded-[3rem] border-2 border-stone-100 shadow-2xl mb-12">
+                        <div class="flex justify-between items-center mb-8">
+                            <span class="text-[10px] font-black uppercase tracking-widest text-amber-500">Mpanampy AI Intelligence</span>
+                            <button @click="generateFicheWithAI()" class="bg-amber-600 text-white px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest ai-pulse flex items-center gap-2">
+                                <i data-lucide="sparkles" class="w-3 h-3"></i> ✨ AI Generate
+                            </button>
+                        </div>
+                        <div class="grid md:grid-cols-2 gap-6">
                             <div class="space-y-4">
-                                <input type="text" x-model="chatLogin.pseudo" placeholder="Pseudonyme" class="w-full p-4 bg-stone-50 border-2 border-stone-100 rounded-2xl outline-none focus:border-amber-500">
-                                <input type="password" x-model="chatLogin.password" placeholder="Mot de passe (1234)" class="w-full p-4 bg-stone-50 border-2 border-stone-100 rounded-2xl outline-none focus:border-amber-500">
-                                <button @click="enterChat()" class="w-full bg-stone-900 text-white py-4 rounded-2xl font-black uppercase tracking-widest">Hiditra</button>
+                                <label class="text-[9px] font-black text-stone-500 uppercase">Information de base</label>
+                                <input type="text" x-model="forms.fiche.title" placeholder="Lohatenin'ny Fiche" class="w-full p-4 bg-white/5 border border-white/10 rounded-2xl outline-none focus:border-amber-600">
+                                <select x-model="forms.fiche.section" class="w-full p-4 bg-white/5 border border-white/10 rounded-2xl outline-none focus:border-amber-600">
+                                    <template x-for="sec in sections" :key="sec"><option :value="sec" x-text="sec"></option></template>
+                                </select>
+                                <input type="text" x-model="forms.fiche.theme" placeholder="Lohahevitra" class="w-full p-4 bg-white/5 border border-white/10 rounded-2xl outline-none">
+                                <div class="grid grid-cols-2 gap-4">
+                                    <input type="text" x-model="forms.fiche.duration" placeholder="Faharetany (ex: 45min)" class="p-4 bg-white/5 border border-white/10 rounded-2xl outline-none">
+                                    <input type="text" x-model="forms.fiche.participants" placeholder="Mpambray anjara" class="p-4 bg-white/5 border border-white/10 rounded-2xl outline-none">
+                                </div>
+                            </div>
+                            <div class="space-y-4">
+                                <label class="text-[9px] font-black text-stone-500 uppercase">Votoatiny</label>
+                                <textarea x-model="forms.fiche.goals" placeholder="Tanjona tratrarina..." class="w-full p-4 bg-white/5 border border-white/10 rounded-2xl outline-none h-24"></textarea>
+                                <textarea x-model="forms.fiche.content" placeholder="Andinindininy amin'ny fampiharana..." class="w-full p-4 bg-white/5 border border-white/10 rounded-2xl outline-none h-44"></textarea>
+                            </div>
+                        </div>
+                        <button @click="saveItem('fiches', 'fiche')" class="w-full mt-8 bg-amber-600 text-white py-5 rounded-2xl font-black uppercase tracking-widest hover:bg-white hover:text-stone-900 transition-colors">Hitehirizy ity fiche ity</button>
+                    </div>
+
+                    <div class="grid md:grid-cols-2 gap-6">
+                        <template x-for="f in filteredFiches" :key="f.id">
+                            <div class="bg-white p-8 rounded-[2.5rem] border border-stone-100 shadow-sm relative overflow-hidden group hover:shadow-xl transition-all duration-500">
+                                <div class="absolute top-0 right-0 bg-amber-100 px-6 py-2 text-[9px] font-black uppercase text-amber-700 rounded-bl-2xl" x-text="f.section"></div>
+                                <h3 class="font-black uppercase text-xl mb-4 pr-16 leading-tight group-hover:text-amber-600 transition-colors" x-text="f.title"></h3>
+                                <div class="flex gap-4 mb-6">
+                                    <div class="flex items-center gap-1.5 text-[10px] font-bold text-stone-400"><i data-lucide="clock" class="w-3.5 h-3.5"></i> <span x-text="f.duration || '--'"></span></div>
+                                    <div class="flex items-center gap-1.5 text-[10px] font-bold text-stone-400"><i data-lucide="users" class="w-3.5 h-3.5"></i> <span x-text="f.participants || '--'"></span></div>
+                                </div>
+                                <p class="text-sm text-stone-500 line-clamp-3 mb-6 font-medium leading-relaxed" x-text="f.content"></p>
+                                <div class="flex justify-between items-center pt-6 border-t border-stone-50">
+                                    <span class="text-[9px] font-black uppercase text-stone-300 tracking-widest" x-text="new Date(f.createdAt).toLocaleDateString()"></span>
+                                    <div class="flex gap-2">
+                                        <button @click="deleteItem('fiches', f.id)" class="p-2 text-stone-200 hover:text-red-500"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+                                    </div>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+
+                <!-- TETIANDRO (Calendrier / Activités) -->
+                <div x-show="activeTab === 'tetiandro'">
+                    <div class="flex flex-col md:flex-row justify-between md:items-end border-b-4 border-stone-900 pb-6 mb-8 gap-6">
+                        <div>
+                            <p class="text-[10px] font-black uppercase tracking-[0.3em] text-amber-600 mb-2">Fandaharam-potoana</p>
+                            <h2 class="text-6xl font-black text-stone-900 uppercase tracking-tighter" x-text="settings.tetiandroTitle"></h2>
+                        </div>
+                        <div class="flex items-center gap-3">
+                            <select x-model="sectionFilter" class="bg-white border-2 border-stone-100 px-6 py-3 rounded-2xl text-xs font-black uppercase outline-none focus:border-amber-600 transition-colors">
+                                <option value="all">SAMPANA REHETRA</option>
+                                <template x-for="sec in sections" :key="sec"><option :value="sec" x-text="sec.toUpperCase()"></option></template>
+                            </select>
+                            <button @click="showAddModal = !showAddModal" class="bg-stone-900 text-white px-8 py-4 rounded-2xl font-black text-xs uppercase tracking-widest">Hetsika Vaovao</button>
+                        </div>
+                    </div>
+
+                    <div x-show="showAddModal" class="bg-stone-100 p-8 rounded-[2.5rem] mb-12 animate-in slide-in-from-top-4 duration-500">
+                        <div class="grid md:grid-cols-2 gap-6">
+                            <div class="space-y-4">
+                                <label class="text-[10px] font-black uppercase text-stone-400">Détails de l'événement</label>
+                                <input type="text" x-model="forms.event.title" placeholder="Anaran'ny hetsika" class="w-full p-4 bg-white rounded-2xl outline-none focus:ring-2 ring-amber-600/20">
+                                <select x-model="forms.event.section" class="w-full p-4 bg-white rounded-2xl outline-none">
+                                    <template x-for="sec in sections" :key="sec"><option :value="sec" x-text="sec"></option></template>
+                                </select>
+                            </div>
+                            <div class="space-y-4">
+                                <div class="grid grid-cols-2 gap-4">
+                                    <input type="date" x-model="forms.event.date" class="p-4 bg-white rounded-2xl outline-none">
+                                    <input type="text" x-model="forms.event.location" placeholder="Toerana" class="p-4 bg-white rounded-2xl outline-none">
+                                </div>
+                                <textarea x-model="forms.event.description" placeholder="Andinindininy..." class="w-full p-4 bg-white rounded-2xl outline-none h-24"></textarea>
+                            </div>
+                        </div>
+                        <button @click="saveItem('events', 'event')" class="w-full mt-6 bg-stone-900 text-white py-5 rounded-2xl font-black uppercase tracking-widest hover:bg-amber-600 transition-colors">Tehirizina ny hetsika</button>
+                    </div>
+
+                    <div class="space-y-6">
+                        <template x-for="e in filteredEvents" :key="e.id">
+                            <div class="bg-white p-8 rounded-[2.5rem] shadow-sm border border-stone-100 flex flex-col md:flex-row justify-between items-start md:items-center gap-6 group hover:shadow-xl transition-all">
+                                <div class="flex gap-6 items-start">
+                                    <div class="bg-stone-50 p-4 rounded-3xl flex flex-col items-center justify-center min-w-[80px] group-hover:bg-amber-50 transition-colors">
+                                        <span class="text-[10px] font-black uppercase text-stone-400" x-text="new Date(e.date).toLocaleDateString('mg-MG', {month: 'short'})"></span>
+                                        <span class="text-3xl font-black text-stone-900" x-text="new Date(e.date).getDate() || '--'"></span>
+                                    </div>
+                                    <div>
+                                        <div class="flex items-center gap-3 mb-2">
+                                            <span class="text-[9px] font-black uppercase text-amber-600 bg-amber-50 px-3 py-1 rounded-full" x-text="e.section"></span>
+                                            <span class="text-[9px] font-bold text-stone-400 uppercase tracking-widest flex items-center gap-1"><i data-lucide="map-pin" class="w-3 h-3"></i> <span x-text="e.location || 'Tany malalaka'"></span></span>
+                                        </div>
+                                        <h4 class="font-black uppercase text-2xl text-stone-900 tracking-tighter" x-text="e.title"></h4>
+                                        <p class="text-sm text-stone-400 mt-2 font-medium" x-text="e.description"></p>
+                                    </div>
+                                </div>
+                                <button @click="deleteItem('events', e.id)" class="p-4 text-stone-200 hover:text-red-500 hover:bg-red-50 rounded-2xl transition-all">
+                                    <i data-lucide="trash-2" class="w-6 h-6"></i>
+                                </button>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+
+                <!-- TAFASIRY (Chat sécurisé) -->
+                <div x-show="activeTab === 'chat'" class="h-[calc(100vh-120px)] flex flex-col">
+                    <div class="flex justify-between items-end border-b-4 border-stone-900 pb-6 mb-8">
+                        <div>
+                            <p class="text-[10px] font-black uppercase tracking-[0.3em] text-amber-600 mb-2">Resaka an-jorony</p>
+                            <h2 class="text-6xl font-black text-stone-900 uppercase tracking-tighter">Tafasiry</h2>
+                        </div>
+                    </div>
+
+                    <!-- Login Screen -->
+                    <div x-show="!chatUser" class="flex-1 flex items-center justify-center px-4">
+                        <div class="bg-white p-12 rounded-[3.5rem] shadow-2xl border border-stone-100 w-full max-w-md text-center transform transition-all">
+                            <div class="w-20 h-20 bg-amber-50 rounded-[2rem] flex items-center justify-center mx-auto mb-8">
+                                <i data-lucide="message-square" class="w-10 h-10 text-amber-600"></i>
+                            </div>
+                            <h3 class="text-2xl font-black uppercase text-stone-900 mb-2">Hiditra Tafasiry</h3>
+                            <p class="text-stone-400 text-xs font-bold mb-8 uppercase tracking-widest">Resaka mpiara-miasa</p>
+                            <div class="space-y-4">
+                                <input type="text" x-model="chatLogin.pseudo" placeholder="Pseudonyme" class="w-full p-5 bg-stone-50 border-2 border-stone-100 rounded-2xl outline-none focus:border-amber-600 transition-all font-bold">
+                                <input type="password" x-model="chatLogin.password" placeholder="Mot de passe (1234)" class="w-full p-5 bg-stone-50 border-2 border-stone-100 rounded-2xl outline-none focus:border-amber-600 transition-all font-bold">
+                                <button @click="enterChat()" class="w-full bg-stone-900 text-white py-5 rounded-2xl font-black uppercase tracking-[0.2em] shadow-xl shadow-stone-200 hover:bg-amber-600 transition-all transform active:scale-95">Hiditra izao</button>
                             </div>
                         </div>
                     </div>
 
-                    <!-- INTERFACE CHAT -->
-                    <div x-show="chatUser" class="flex-1 flex flex-col bg-white rounded-[2.5rem] shadow-sm border border-stone-100 overflow-hidden">
-                        <!-- Header Chat -->
-                        <div class="bg-stone-50 p-4 border-b border-stone-100 flex justify-between items-center">
-                            <div class="flex items-center gap-2">
-                                <div class="w-3 h-3 bg-green-500 rounded-full"></div>
-                                <span class="font-black text-xs uppercase" x-text="chatUser?.pseudo"></span>
+                    <!-- Chat Interface -->
+                    <div x-show="chatUser" class="flex-1 flex flex-col bg-white rounded-[3.5rem] shadow-xl border border-stone-100 overflow-hidden relative">
+                        <!-- Chat Header -->
+                        <div class="bg-stone-50 px-8 py-5 border-b border-stone-100 flex justify-between items-center">
+                            <div class="flex items-center gap-4">
+                                <div class="relative">
+                                    <div class="w-10 h-10 bg-amber-600 rounded-xl flex items-center justify-center font-black text-white text-xs" x-text="chatUser?.pseudo.charAt(0).toUpperCase()"></div>
+                                    <div class="absolute -bottom-1 -right-1 w-4 h-4 bg-green-500 border-4 border-stone-50 rounded-full"></div>
+                                </div>
+                                <div>
+                                    <span class="font-black text-sm uppercase text-stone-900" x-text="chatUser?.pseudo"></span>
+                                    <p class="text-[8px] font-black text-green-600 uppercase tracking-widest">Connecté</p>
+                                </div>
                             </div>
-                            <button @click="chatUser = null" class="text-stone-400 hover:text-red-500 text-[10px] font-bold uppercase">Hivoaka</button>
+                            <button @click="chatUser = null" class="text-stone-400 hover:text-red-500 text-[10px] font-black uppercase tracking-widest flex items-center gap-2">
+                                <i data-lucide="log-out" class="w-3 h-3"></i> Hivoaka
+                            </button>
                         </div>
-
-                        <!-- Change Pass Modal (Inline) -->
-                        <div x-show="isChangingPass" class="p-4 bg-amber-50 border-b border-amber-100 flex gap-2">
-                            <input type="text" x-model="newPassValue" placeholder="Password vaovao" class="flex-1 p-2 rounded-lg border border-amber-200 outline-none text-sm">
-                            <button @click="changeChatPassword()" class="bg-amber-600 text-white px-4 py-2 rounded-lg text-[10px] font-bold">OK</button>
-                        </div>
-
-                        <!-- Messages -->
-                        <div id="chat-container" class="flex-1 overflow-y-auto p-6 space-y-4">
+                        
+                        <!-- Message List -->
+                        <div id="chat-container" class="flex-1 overflow-y-auto p-8 space-y-6 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] bg-fixed">
                             <template x-for="msg in chatMessages" :key="msg.id">
-                                <div :class="msg.sender === chatUser.pseudo ? 'items-end' : 'items-start'" class="flex flex-col">
-                                    <div class="flex items-center gap-2 mb-1">
-                                        <span class="text-[9px] font-black uppercase text-stone-400" x-text="msg.sender"></span>
-                                        <span class="text-[8px] text-stone-300" x-text="new Date(msg.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})"></span>
+                                <div :class="msg.sender === chatUser.pseudo ? 'items-end' : 'items-start'" class="flex flex-col animate-in fade-in slide-in-from-bottom-2 duration-300">
+                                    <div class="flex items-center gap-3 mb-1.5 px-2">
+                                        <span class="text-[10px] font-black uppercase text-stone-400" x-text="msg.sender"></span>
+                                        <span class="text-[9px] font-bold text-stone-300" x-text="new Date(msg.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})"></span>
                                     </div>
-                                    <div :class="msg.sender === chatUser.pseudo ? 'bg-amber-600 text-white rounded-l-2xl rounded-tr-2xl' : 'bg-stone-100 text-stone-800 rounded-r-2xl rounded-tl-2xl'" 
-                                         class="px-4 py-3 max-w-[80%] text-sm font-medium shadow-sm" x-text="msg.text"></div>
+                                    <div :class="msg.sender === chatUser.pseudo ? 'bg-amber-600 text-white rounded-3xl rounded-tr-none shadow-lg shadow-amber-900/10' : 'bg-white text-stone-800 rounded-3xl rounded-tl-none shadow-sm border border-stone-100'" 
+                                         class="px-6 py-4 max-w-[85%] md:max-w-[70%] text-sm font-semibold leading-relaxed" x-text="msg.text"></div>
                                 </div>
                             </template>
                         </div>
 
-                        <!-- Input -->
-                        <div class="p-4 bg-white border-t border-stone-100">
-                            <div class="flex gap-2">
-                                <input type="text" x-model="newMessage" @keyup.enter="sendMessage()" placeholder="Hanatra hafatra..." 
-                                       class="flex-1 p-4 bg-stone-50 border-2 border-stone-100 rounded-2xl outline-none focus:border-amber-500">
-                                <button @click="sendMessage()" class="bg-stone-900 text-white p-4 rounded-2xl shadow-lg">
+                        <!-- Chat Input -->
+                        <div class="p-6 bg-white border-t border-stone-100">
+                            <div class="flex gap-3 bg-stone-50 p-2 rounded-[2rem] border-2 border-stone-100 focus-within:border-amber-600 transition-all">
+                                <input type="text" x-model="newMessage" @keyup.enter="sendMessage()" placeholder="Hanoratra hafatra eto..." 
+                                       class="flex-1 px-6 bg-transparent outline-none font-bold text-sm text-stone-800">
+                                <button @click="sendMessage()" class="bg-stone-900 text-white p-5 rounded-full shadow-lg hover:bg-amber-600 transition-all active:scale-90">
                                     <i data-lucide="send" class="w-5 h-5"></i>
                                 </button>
                             </div>
@@ -430,59 +614,90 @@
                     </div>
                 </div>
 
-                <!-- AUTRES ONGLETS (Contenu identique au précédent) -->
+                <!-- AUTRES ONGLETS (Programme, Tahiry, Settings) -->
                 <div x-show="activeTab === 'programme'">
-                    <div class="flex justify-between items-end border-b-4 border-stone-900 pb-4 mb-6">
-                        <h2 class="text-5xl font-black text-stone-900 uppercase tracking-tighter">Programme</h2>
-                        <button @click="showAddModal = !showAddModal" class="bg-stone-900 text-white px-6 py-3 rounded-2xl font-black text-xs uppercase">Hampiditra</button>
+                    <div class="flex justify-between items-end border-b-4 border-stone-900 pb-6 mb-8">
+                        <h2 class="text-6xl font-black text-stone-900 uppercase tracking-tighter">Programme</h2>
                     </div>
-                    <div x-show="showAddModal" class="bg-amber-50 p-6 rounded-3xl mb-8 space-y-4">
-                        <input type="text" x-model="forms.event.title" placeholder="Lohateny" class="w-full p-4 rounded-xl border border-stone-200 outline-none">
-                        <button @click="saveItem('events', 'event')" class="w-full bg-stone-900 text-white py-4 rounded-xl font-bold">TEHIRIZINA</button>
-                    </div>
-                    <div class="grid gap-4">
-                        <template x-for="event in events" :key="event.id">
-                            <div class="bg-white p-5 rounded-2xl shadow-sm border border-stone-100 flex justify-between items-center">
-                                <h4 class="font-black uppercase" x-text="event.title"></h4>
-                                <button @click="deleteItem('events', event.id)" class="text-stone-200 hover:text-red-500"><i data-lucide="trash-2"></i></button>
+                    <div class="grid gap-10">
+                        <template x-for="plan in plans" :key="plan.trim">
+                            <div class="bg-white p-10 rounded-[3rem] shadow-sm border border-stone-100 group">
+                                <div class="flex items-center gap-4 mb-6">
+                                    <div class="w-12 h-12 bg-stone-900 text-white rounded-2xl flex items-center justify-center font-black" x-text="plan.trim"></div>
+                                    <h3 class="text-3xl font-black uppercase tracking-tighter" x-text="plan.label"></h3>
+                                </div>
+                                <textarea x-model="plan.content" class="w-full h-56 p-8 bg-stone-50 border-2 border-stone-100 rounded-[2.5rem] outline-none focus:border-amber-600 text-base font-medium leading-relaxed" placeholder="Tanisao eto ny tanjona sy ny fomba hanatanterahana izany..."></textarea>
+                                <button @click="savePlan(plan.trim)" class="mt-6 bg-stone-900 text-white px-10 py-4 rounded-2xl font-black text-xs uppercase tracking-[0.2em] shadow-lg hover:bg-amber-600 transition-all">Tehirizina</button>
                             </div>
                         </template>
                     </div>
                 </div>
 
-                <div x-show="activeTab === 'fanabeazana'">
-                     <div class="flex justify-between items-end border-b-4 border-stone-900 pb-4 mb-6">
-                        <h2 class="text-5xl font-black text-stone-900 uppercase tracking-tighter">Fanabeazana</h2>
-                        <button @click="showAddModal = !showAddModal" class="bg-amber-600 text-white px-6 py-3 rounded-2xl font-black text-xs uppercase">Fiche vaovao</button>
+                <div x-show="activeTab === 'tahiry'">
+                    <div class="flex flex-col md:flex-row justify-between md:items-end border-b-4 border-stone-900 pb-6 mb-8 gap-6">
+                        <h2 class="text-6xl font-black text-stone-900 uppercase tracking-tighter">Tahiry</h2>
+                        <button @click="showAddModal = !showAddModal" class="bg-stone-900 text-white px-8 py-4 rounded-2xl font-black text-xs uppercase tracking-widest">Hampiditra rakitra</button>
                     </div>
-                    <div x-show="showAddModal" class="bg-stone-900 text-white p-8 rounded-3xl mb-8 space-y-4">
-                        <div class="flex justify-between items-center">
-                            <span class="text-xs font-black uppercase text-amber-500">Famoronana Fiche</span>
-                            <button @click="generateFicheWithAI()" class="bg-amber-600 px-4 py-2 rounded-xl text-[10px] font-black uppercase ai-pulse">✨ AI Generate</button>
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-6">
+                        <template x-for="a in archives" :key="a.id">
+                            <div class="bg-white p-8 rounded-[2.5rem] border border-stone-100 text-center flex flex-col items-center group hover:border-amber-500 transition-all">
+                                <div class="w-16 h-16 bg-stone-50 rounded-2xl flex items-center justify-center mb-4 group-hover:bg-amber-50 transition-colors">
+                                    <i data-lucide="file-text" class="w-8 h-8 text-amber-600"></i>
+                                </div>
+                                <h4 class="font-black uppercase text-[10px] text-stone-600 mb-4 line-clamp-1" x-text="a.title"></h4>
+                                <button @click="downloadFile(a.fileData, a.fileName)" class="bg-stone-100 hover:bg-stone-900 hover:text-white px-4 py-2 rounded-xl text-[8px] font-black transition-all">DOWNLOAD</button>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+
+                <div x-show="activeTab === 'settings'">
+                     <div class="flex justify-between items-end border-b-4 border-stone-900 pb-6 mb-8">
+                        <h2 class="text-6xl font-black text-stone-900 uppercase tracking-tighter">Paramètre</h2>
+                        <button @click="saveSettings()" class="bg-amber-600 text-white px-8 py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-amber-200">Tehirizina</button>
+                    </div>
+                    <div class="grid md:grid-cols-2 gap-10">
+                        <div class="bg-white p-10 rounded-[3rem] shadow-sm border border-stone-100 space-y-8">
+                            <h3 class="font-black text-lg uppercase mb-6 flex items-center gap-3"><i data-lucide="info" class="w-5 h-5 text-amber-600"></i> Momba ny Vondrona</h3>
+                            <div class="space-y-6">
+                                <div>
+                                    <label class="block text-[10px] font-black uppercase text-stone-400 mb-2">Anaran'ny vondrona</label>
+                                    <input type="text" x-model="settings.groupName" class="w-full p-5 bg-stone-50 border-2 border-stone-100 rounded-2xl outline-none focus:border-amber-600 font-bold">
+                                </div>
+                                <div>
+                                    <label class="block text-[10px] font-black uppercase text-stone-400 mb-2">Fivondronana</label>
+                                    <input type="text" x-model="settings.fivondronana" class="w-full p-5 bg-stone-50 border-2 border-stone-100 rounded-2xl outline-none focus:border-amber-600 font-bold">
+                                </div>
+                                <div>
+                                    <label class="block text-[10px] font-black uppercase text-stone-400 mb-2">Dina (Slogan)</label>
+                                    <input type="text" x-model="settings.dina" class="w-full p-5 bg-stone-50 border-2 border-stone-100 rounded-2xl outline-none focus:border-amber-600 font-bold">
+                                </div>
+                            </div>
                         </div>
-                        <input type="text" x-model="forms.fiche.title" placeholder="Lohateny" class="w-full p-4 bg-white/10 rounded-xl outline-none">
-                        <textarea x-model="forms.fiche.content" placeholder="Andinindininy" class="w-full p-4 bg-white/10 rounded-xl outline-none"></textarea>
-                        <button @click="saveItem('fiches', 'fiche')" class="w-full bg-amber-600 text-white py-4 rounded-xl font-bold">TEHIRIZINA</button>
-                    </div>
-                    <div class="grid md:grid-cols-2 gap-6">
-                        <template x-for="f in fiches" :key="f.id">
-                            <div class="bg-white p-6 rounded-3xl border border-stone-100 shadow-sm">
-                                <h3 class="font-black uppercase text-xl mb-2" x-text="f.title"></h3>
-                                <p class="text-sm text-stone-500 line-clamp-3" x-text="f.content"></p>
-                                <button @click="deleteItem('fiches', f.id)" class="mt-4 text-stone-300 hover:text-red-500"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+                        <div class="bg-stone-900 text-white p-10 rounded-[3rem] shadow-sm">
+                            <h3 class="font-black text-lg uppercase mb-6 flex items-center gap-3"><i data-lucide="image" class="w-5 h-5 text-amber-600"></i> Sary & Logo</h3>
+                            <div class="flex flex-col items-center py-6">
+                                <div class="w-32 h-32 bg-white/5 rounded-[2rem] border-2 border-dashed border-white/20 flex items-center justify-center mb-6 overflow-hidden">
+                                    <template x-if="settings.logo"><img :src="settings.logo" class="w-full h-full object-cover"></template>
+                                    <template x-if="!settings.logo"><i data-lucide="plus" class="w-8 h-8 text-white/20"></i></template>
+                                </div>
+                                <label class="bg-white text-stone-900 px-8 py-3 rounded-xl font-black text-[10px] uppercase cursor-pointer hover:bg-amber-600 hover:text-white transition-all">
+                                    Hanova sary
+                                    <input type="file" @change="handleFileUpload($event, 'settings', 'logo')" class="hidden">
+                                </label>
                             </div>
-                        </template>
+                        </div>
                     </div>
                 </div>
-
-                <!-- [Les autres onglets Zatovo, Tetiandro, Tahiry, Settings restent identiques au code précédent] -->
 
             </div>
         </main>
     </div>
 
     <script>
-        window.onload = () => { console.log("Valizy Scoutisme v2 with Chat ready."); };
+        window.onload = () => {
+            console.log("Valizy Scoutisme v3.0 - Système Intégral avec Tafasiry et Filtres.");
+        };
     </script>
 </body>
 </html>
